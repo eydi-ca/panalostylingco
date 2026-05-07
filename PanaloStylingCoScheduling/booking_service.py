@@ -1,9 +1,104 @@
+from datetime import date, datetime, timedelta
+
 from db import Database
 
 
 class BookingService:
     def __init__(self, db: Database):
         self.db = db
+
+    def parse_event_date(self, event_date: str):
+        event_date = event_date.strip()
+
+        if not event_date:
+            raise ValueError("Event date is required.")
+
+        try:
+            return datetime.strptime(event_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Event date must follow YYYY-MM-DD format.")
+
+    def validate_booking_date_and_time(self, event_date: str, event_time: str):
+        parsed_date = self.parse_event_date(event_date)
+
+        if not event_time.strip():
+            raise ValueError("Event time is required.")
+
+        minimum_date = date.today() + timedelta(days=3)
+
+        if parsed_date < minimum_date:
+            raise ValueError(
+                f"Booking must be scheduled at least 3 days from today. "
+                f"Earliest allowed date is {minimum_date.strftime('%Y-%m-%d')}."
+            )
+
+    def get_cancelled_status_id(self, conn):
+        row = conn.execute(
+            """
+            SELECT id
+            FROM booking_statuses
+            WHERE LOWER(name) = 'cancelled'
+            LIMIT 1
+            """
+        ).fetchone()
+
+        return row["id"] if row else None
+
+    def ensure_client_not_already_booked(self, conn, client_id: int, current_booking_id: int | None = None):
+        cancelled_status_id = self.get_cancelled_status_id(conn)
+
+        query = """
+            SELECT id
+            FROM bookings
+            WHERE client_id = ?
+        """
+
+        params = [client_id]
+
+        if cancelled_status_id:
+            query += " AND status_id != ?"
+            params.append(cancelled_status_id)
+
+        if current_booking_id:
+            query += " AND id != ?"
+            params.append(current_booking_id)
+
+        query += " LIMIT 1"
+
+        existing = conn.execute(query, params).fetchone()
+
+        if existing:
+            raise ValueError(
+                "This client already has an active booking. Cancel the existing booking first before creating another one."
+            )
+
+    def ensure_no_booking_conflict(self, conn, event_date: str, current_booking_id: int | None = None):
+        cancelled_status_id = self.get_cancelled_status_id(conn)
+
+        query = """
+            SELECT id
+            FROM bookings
+            WHERE event_date = ?
+        """
+
+        params = [event_date.strip()]
+
+        if cancelled_status_id:
+            query += " AND status_id != ?"
+            params.append(cancelled_status_id)
+
+        if current_booking_id:
+            query += " AND id != ?"
+            params.append(current_booking_id)
+
+        query += " LIMIT 1"
+
+        existing = conn.execute(query, params).fetchone()
+
+        if existing:
+            raise ValueError(
+                "This date already has a booked client. For now, only one client can be scheduled per day."
+            )
 
     def list_bookings(self, search_text: str = ""):
         search_text = search_text.strip()
@@ -117,9 +212,14 @@ class BookingService:
         if guest_count is not None and guest_count < 0:
             raise ValueError("Guest count cannot be negative.")
 
+        self.validate_booking_date_and_time(event_date, event_time)
+
         balance_amount = total_amount - down_payment_amount
 
         with self.db.get_conn() as conn:
+            self.ensure_client_not_already_booked(conn, client_id)
+            self.ensure_no_booking_conflict(conn, event_date)
+
             cur = conn.execute(
                 """
                 INSERT INTO bookings (
@@ -204,6 +304,8 @@ class BookingService:
         if guest_count is not None and guest_count < 0:
             raise ValueError("Guest count cannot be negative.")
 
+        self.validate_booking_date_and_time(event_date, event_time)
+
         balance_amount = total_amount - down_payment_amount
 
         with self.db.get_conn() as conn:
@@ -218,6 +320,18 @@ class BookingService:
 
             if not existing:
                 raise ValueError("Booking not found.")
+
+            self.ensure_client_not_already_booked(
+                conn,
+                client_id,
+                current_booking_id=booking_id
+            )
+
+            self.ensure_no_booking_conflict(
+                conn,
+                event_date,
+                current_booking_id=booking_id
+            )
 
             conn.execute(
                 """

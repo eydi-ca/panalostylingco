@@ -147,12 +147,39 @@ class Database:
                     FOREIGN KEY(status_id) REFERENCES booking_statuses(id),
                     FOREIGN KEY(created_by) REFERENCES users(id)
                 );
+                
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    booking_id INTEGER NOT NULL,
+                    payment_type TEXT NOT NULL CHECK(payment_type IN ('Down Payment', 'Partial Payment', 'Full Payment', 'Refund')),
+                    amount REAL NOT NULL,
+                    payment_method TEXT,
+                    reference_number TEXT,
+                    payment_date TEXT,
+                    verification_status TEXT NOT NULL DEFAULT 'Pending' CHECK(verification_status IN ('Pending', 'Verified', 'Rejected')),
+                    verified_by INTEGER,
+                    verified_at TEXT,
+                    notes TEXT,
+                    created_by INTEGER,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(booking_id) REFERENCES bookings(id),
+                    FOREIGN KEY(verified_by) REFERENCES users(id),
+                    FOREIGN KEY(created_by) REFERENCES users(id)
+                );
                 """
 
             )
 
             columns = conn.execute("PRAGMA table_info(users)").fetchall()
             column_names = [column["name"] for column in columns]
+
+            columns = conn.execute("PRAGMA table_info(bookings)").fetchall()
+            booking_column_names = [column["name"] for column in columns]
+
+            if "reschedule_count" not in booking_column_names:
+                conn.execute(
+                    "ALTER TABLE bookings ADD COLUMN reschedule_count INTEGER NOT NULL DEFAULT 0"
+                )
 
             if "username" not in column_names:
                 conn.execute("ALTER TABLE users ADD COLUMN username TEXT")

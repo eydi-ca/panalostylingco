@@ -1,5 +1,7 @@
 import json
 import tkinter as tk
+import calendar
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk, messagebox
 
@@ -10,6 +12,8 @@ from settings_service import SettingsService
 from client_service import ClientService
 from package_service import PackageService
 from booking_service import BookingService
+from schedule_service import ScheduleService
+from payment_service import PaymentService
 
 
 REMEMBER_FILE = Path(__file__).resolve().parent / "data" / "remember_me.json"
@@ -29,6 +33,8 @@ class PanaloApp(tk.Tk):
         self.client_service = ClientService(self.db)
         self.package_service = PackageService(self.db)
         self.booking_service = BookingService(self.db)
+        self.schedule_service = ScheduleService(self.db)
+        self.payment_service = PaymentService(self.db)
         self.current_user: SessionUser | None = None
 
         self.container = ttk.Frame(self)
@@ -299,6 +305,14 @@ class MainSystemPage(ttk.Frame):
 
         if module_name == "Bookings":
             BookingsPage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
+        if module_name == "Schedule":
+            SchedulePage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
+        if module_name == "Payment":
+            PaymentPage(self.content, self.app).pack(fill="both", expand=True)
             return
 
         ttk.Label(
@@ -739,10 +753,8 @@ class ClientsPage(ttk.Frame):
             "id",
             "full_name",
             "contact_number",
-            "event_type",
-            "event_date",
-            "event_location",
-            "status"
+            "notes",
+            "created_at"
         )
 
         self.table = ttk.Treeview(
@@ -755,18 +767,14 @@ class ClientsPage(ttk.Frame):
         self.table.heading("id", text="ID")
         self.table.heading("full_name", text="Client Name")
         self.table.heading("contact_number", text="Contact")
-        self.table.heading("event_type", text="Event Type")
-        self.table.heading("event_date", text="Event Date")
-        self.table.heading("event_location", text="Location")
-        self.table.heading("status", text="Status")
+        self.table.heading("notes", text="Notes")
+        self.table.heading("created_at", text="Created At")
 
         self.table.column("id", width=50)
-        self.table.column("full_name", width=180)
-        self.table.column("contact_number", width=120)
-        self.table.column("event_type", width=140)
-        self.table.column("event_date", width=100)
-        self.table.column("event_location", width=220)
-        self.table.column("status", width=120)
+        self.table.column("full_name", width=220)
+        self.table.column("contact_number", width=140)
+        self.table.column("notes", width=350)
+        self.table.column("created_at", width=150)
 
         self.table.pack(fill="both", expand=True)
 
@@ -801,10 +809,8 @@ class ClientsPage(ttk.Frame):
                     client["id"],
                     client["full_name"],
                     client["contact_number"] or "",
-                    client["event_type"] or "",
-                    client["event_date"] or "",
-                    client["event_location"] or "",
-                    client["status"] or ""
+                    client["notes"] or "",
+                    client["created_at"] or ""
                 )
             )
 
@@ -824,10 +830,8 @@ class ClientsPage(ttk.Frame):
                     client["id"],
                     client["full_name"],
                     client["contact_number"] or "",
-                    client["event_type"] or "",
-                    client["event_date"] or "",
-                    client["event_location"] or "",
-                    client["status"] or ""
+                    client["notes"] or "",
+                    client["created_at"] or ""
                 )
             )
 
@@ -873,6 +877,209 @@ class ClientsPage(ttk.Frame):
             client=client
         )
 
+class DatePickerWindow(tk.Toplevel):
+    def __init__(self, app: PanaloApp, target_var: tk.StringVar, initial_date=None, exclude_booking_id=None):
+        super().__init__()
+
+        self.app = app
+        self.target_var = target_var
+        self.exclude_booking_id = exclude_booking_id
+
+        today = date.today()
+        self.current_year = today.year
+        self.current_month = today.month
+        self.minimum_date = today + timedelta(days=3)
+
+        if initial_date:
+            try:
+                parsed = datetime.strptime(initial_date, "%Y-%m-%d").date()
+                self.current_year = parsed.year
+                self.current_month = parsed.month
+            except Exception:
+                pass
+
+        self.title("Select Event Date")
+        self.geometry("430x420")
+        self.resizable(False, False)
+
+        self.build_ui()
+        self.render_calendar()
+
+    def build_ui(self):
+        main = ttk.Frame(self, padding=15)
+        main.pack(fill="both", expand=True)
+
+        nav = ttk.Frame(main)
+        nav.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            nav,
+            text="‹",
+            width=4,
+            command=self.previous_month
+        ).pack(side="left")
+
+        self.month_label = ttk.Label(
+            nav,
+            text="",
+            font=("Segoe UI", 14, "bold")
+        )
+        self.month_label.pack(side="left", expand=True)
+
+        ttk.Button(
+            nav,
+            text="›",
+            width=4,
+            command=self.next_month
+        ).pack(side="right")
+
+        self.calendar_frame = ttk.Frame(main)
+        self.calendar_frame.pack(fill="both", expand=True)
+
+        legend = ttk.Frame(main)
+        legend.pack(fill="x", pady=(10, 0))
+
+        tk.Label(
+            legend,
+            text="Available",
+            bg="white",
+            width=12,
+            relief="solid",
+            bd=1
+        ).pack(side="left", padx=(0, 8))
+
+        tk.Label(
+            legend,
+            text="Unavailable",
+            bg="#f8d7da",
+            width=12,
+            relief="solid",
+            bd=1
+        ).pack(side="left")
+
+    def previous_month(self):
+        self.current_month -= 1
+
+        if self.current_month == 0:
+            self.current_month = 12
+            self.current_year -= 1
+
+        self.render_calendar()
+
+    def next_month(self):
+        self.current_month += 1
+
+        if self.current_month == 13:
+            self.current_month = 1
+            self.current_year += 1
+
+        self.render_calendar()
+
+    def get_booked_dates_for_month(self):
+        schedules = self.app.schedule_service.list_schedules_for_month(
+            self.current_year,
+            self.current_month
+        )
+
+        booked_dates = set()
+
+        for sched in schedules:
+            status = (sched["status"] or "").lower()
+
+            if status == "cancelled":
+                continue
+
+            if self.exclude_booking_id and sched["id"] == self.exclude_booking_id:
+                continue
+
+            if sched["event_date"]:
+                booked_dates.add(sched["event_date"])
+
+        return booked_dates
+
+    def render_calendar(self):
+        for widget in self.calendar_frame.winfo_children():
+            widget.destroy()
+
+        self.month_label.config(
+            text=f"{calendar.month_name[self.current_month]} {self.current_year}"
+        )
+
+        booked_dates = self.get_booked_dates_for_month()
+
+        day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+        for col, day_name in enumerate(day_names):
+            ttk.Label(
+                self.calendar_frame,
+                text=day_name,
+                anchor="center",
+                font=("Segoe UI", 9, "bold")
+            ).grid(row=0, column=col, sticky="nsew", padx=2, pady=2)
+
+        cal = calendar.Calendar(firstweekday=6)
+        weeks = cal.monthdayscalendar(self.current_year, self.current_month)
+
+        for row_index, week in enumerate(weeks, start=1):
+            for col_index, day_number in enumerate(week):
+                if day_number == 0:
+                    ttk.Label(self.calendar_frame, text="").grid(
+                        row=row_index,
+                        column=col_index,
+                        sticky="nsew",
+                        padx=2,
+                        pady=2
+                    )
+                    continue
+
+                current_date = date(
+                    self.current_year,
+                    self.current_month,
+                    day_number
+                )
+
+                date_key = current_date.strftime("%Y-%m-%d")
+
+                is_too_soon = current_date < self.minimum_date
+                is_booked = date_key in booked_dates
+                is_unavailable = is_too_soon or is_booked
+
+                bg_color = "#f8d7da" if is_unavailable else "white"
+                fg_color = "#842029" if is_unavailable else "black"
+
+                btn = tk.Button(
+                    self.calendar_frame,
+                    text=str(day_number),
+                    bg=bg_color,
+                    fg=fg_color,
+                    relief="solid",
+                    bd=1,
+                    width=6,
+                    height=2,
+                    command=lambda selected=current_date, unavailable=is_unavailable: self.select_date(selected, unavailable)
+                )
+                btn.grid(
+                    row=row_index,
+                    column=col_index,
+                    sticky="nsew",
+                    padx=2,
+                    pady=2
+                )
+
+        for col in range(7):
+            self.calendar_frame.columnconfigure(col, weight=1)
+
+    def select_date(self, selected_date, unavailable):
+        if unavailable:
+            messagebox.showwarning(
+                "Unavailable Date",
+                "This date cannot be selected. It may be too soon or already booked."
+            )
+            return
+
+        self.target_var.set(selected_date.strftime("%Y-%m-%d"))
+        self.destroy()
+
 class ClientFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: ClientsPage, mode: str, client=None):
         super().__init__()
@@ -882,164 +1089,72 @@ class ClientFormWindow(tk.Toplevel):
         self.mode = mode
         self.client = client
 
-        self.event_type_options = []
-        self.status_options = []
-
         self.title("Add Client" if mode == "add" else "Edit Client")
-        self.geometry("520x680")
+        self.geometry("520x420")
         self.resizable(False, False)
 
         self.full_name_var = tk.StringVar(value=client["full_name"] if client else "")
         self.contact_number_var = tk.StringVar(value=client["contact_number"] if client else "")
-        self.event_date_var = tk.StringVar(value=client["event_date"] if client else "")
-        self.event_location_var = tk.StringVar(value=client["event_location"] if client else "")
-        self.guest_count_var = tk.StringVar(value=str(client["guest_count"]) if client and client["guest_count"] is not None else "")
-        self.theme_motif_var = tk.StringVar(value=client["theme_motif"] if client else "")
-        self.preferred_package_var = tk.StringVar(value=client["preferred_package"] if client else "")
 
-        self.event_type_var = tk.StringVar()
-        self.status_var = tk.StringVar()
-
-        self.load_dropdown_options()
         self.build_ui()
-        self.set_existing_dropdown_values()
-
-    def load_dropdown_options(self):
-        self.event_type_options = self.app.settings_service.list_event_types()
-        self.status_options = self.app.settings_service.list_booking_statuses()
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        container = ttk.Frame(self, padding=20)
+        container.pack(fill="both", expand=True)
 
         ttk.Label(
-            frame,
+            container,
             text="Add Client" if self.mode == "add" else "Edit Client",
             font=("Segoe UI", 18, "bold")
         ).pack(anchor="w", pady=(0, 15))
 
-        ttk.Label(frame, text="Client Full Name").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.full_name_var).pack(fill="x", pady=(3, 10))
+        ttk.Label(container, text="Client Full Name").pack(anchor="w")
+        ttk.Entry(
+            container,
+            textvariable=self.full_name_var
+        ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Contact Number").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.contact_number_var).pack(fill="x", pady=(3, 10))
+        ttk.Label(container, text="Contact Number").pack(anchor="w")
+        ttk.Entry(
+            container,
+            textvariable=self.contact_number_var
+        ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Event Type").pack(anchor="w")
-        self.event_type_combo = ttk.Combobox(
-            frame,
-            textvariable=self.event_type_var,
-            values=[item["name"] for item in self.event_type_options],
-            state="readonly"
-        )
-        self.event_type_combo.pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Event Date").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.event_date_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Event Location").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.event_location_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Guest Count").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.guest_count_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Theme / Motif").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.theme_motif_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Preferred Package").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.preferred_package_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Status").pack(anchor="w")
-        self.status_combo = ttk.Combobox(
-            frame,
-            textvariable=self.status_var,
-            values=[item["name"] for item in self.status_options],
-            state="readonly"
-        )
-        self.status_combo.pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Notes").pack(anchor="w")
-        self.notes_box = tk.Text(frame, height=5, wrap="word")
-        self.notes_box.pack(fill="x", pady=(3, 15))
+        ttk.Label(container, text="Notes").pack(anchor="w")
+        self.notes_box = tk.Text(container, height=7, wrap="word")
+        self.notes_box.pack(fill="both", expand=True, pady=(3, 15))
 
         if self.client:
             self.notes_box.insert("1.0", self.client["notes"] or "")
 
+        button_row = ttk.Frame(container)
+        button_row.pack(fill="x")
+
         ttk.Button(
-            frame,
-            text="Save Client",
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm",
             command=self.save_client
-        ).pack(fill="x")
-
-    def set_existing_dropdown_values(self):
-        if self.client:
-            event_type_id = self.client["event_type_id"]
-            status_id = self.client["status_id"]
-
-            for item in self.event_type_options:
-                if item["id"] == event_type_id:
-                    self.event_type_var.set(item["name"])
-                    break
-
-            for item in self.status_options:
-                if item["id"] == status_id:
-                    self.status_var.set(item["name"])
-                    break
-        else:
-            if self.event_type_options:
-                self.event_type_var.set(self.event_type_options[0]["name"])
-
-            if self.status_options:
-                for item in self.status_options:
-                    if item["name"] == "Inquiry":
-                        self.status_var.set(item["name"])
-                        return
-
-                self.status_var.set(self.status_options[0]["name"])
-
-    def get_selected_event_type_id(self):
-        selected_name = self.event_type_var.get()
-
-        for item in self.event_type_options:
-            if item["name"] == selected_name:
-                return item["id"]
-
-        return None
-
-    def get_selected_status_id(self):
-        selected_name = self.status_var.get()
-
-        for item in self.status_options:
-            if item["name"] == selected_name:
-                return item["id"]
-
-        return None
-
-    def get_guest_count(self):
-        value = self.guest_count_var.get().strip()
-
-        if not value:
-            return None
-
-        try:
-            return int(value)
-        except ValueError:
-            raise ValueError("Guest count must be a whole number.")
+        ).pack(side="right", padx=(0, 8))
 
     def save_client(self):
         try:
-            guest_count = self.get_guest_count()
-
             if self.mode == "add":
                 self.app.client_service.add_client(
                     full_name=self.full_name_var.get(),
                     contact_number=self.contact_number_var.get(),
-                    event_type_id=self.get_selected_event_type_id(),
-                    event_date=self.event_date_var.get(),
-                    event_location=self.event_location_var.get(),
-                    guest_count=guest_count,
-                    theme_motif=self.theme_motif_var.get(),
-                    preferred_package=self.preferred_package_var.get(),
-                    status_id=self.get_selected_status_id(),
+                    event_type_id=None,
+                    event_date="",
+                    event_location="",
+                    guest_count=None,
+                    theme_motif="",
+                    preferred_package="",
+                    status_id=None,
                     notes=self.notes_box.get("1.0", "end").strip(),
                     created_by=self.app.current_user.id
                 )
@@ -1051,13 +1166,13 @@ class ClientFormWindow(tk.Toplevel):
                     client_id=self.client["id"],
                     full_name=self.full_name_var.get(),
                     contact_number=self.contact_number_var.get(),
-                    event_type_id=self.get_selected_event_type_id(),
-                    event_date=self.event_date_var.get(),
-                    event_location=self.event_location_var.get(),
-                    guest_count=guest_count,
-                    theme_motif=self.theme_motif_var.get(),
-                    preferred_package=self.preferred_package_var.get(),
-                    status_id=self.get_selected_status_id(),
+                    event_type_id=None,
+                    event_date="",
+                    event_location="",
+                    guest_count=None,
+                    theme_motif="",
+                    preferred_package="",
+                    status_id=None,
                     notes=self.notes_box.get("1.0", "end").strip(),
                     actor_id=self.app.current_user.id
                 )
@@ -1069,7 +1184,6 @@ class ClientFormWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
-
 
 class PackagesPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
@@ -1595,8 +1709,9 @@ class BookingFormWindow(tk.Toplevel):
         self.status_options = []
 
         self.title("Add Booking" if mode == "add" else "Edit Booking")
-        self.geometry("580x760")
-        self.resizable(False, False)
+        self.geometry("760x620")
+        self.minsize(720, 560)
+        self.resizable(True, True)
 
         self.client_var = tk.StringVar()
         self.package_var = tk.StringVar()
@@ -1606,11 +1721,19 @@ class BookingFormWindow(tk.Toplevel):
         self.event_date_var = tk.StringVar(value=booking["event_date"] if booking else "")
         self.event_time_var = tk.StringVar(value=booking["event_time"] if booking else "")
         self.event_location_var = tk.StringVar(value=booking["event_location"] if booking else "")
-        self.guest_count_var = tk.StringVar(value=str(booking["guest_count"]) if booking and booking["guest_count"] is not None else "")
+        self.guest_count_var = tk.StringVar(
+            value=str(booking["guest_count"]) if booking and booking["guest_count"] is not None else "1"
+        )
         self.theme_motif_var = tk.StringVar(value=booking["theme_motif"] if booking else "")
-        self.total_amount_var = tk.StringVar(value=str(booking["total_amount"]) if booking and booking["total_amount"] is not None else "0")
-        self.down_payment_var = tk.StringVar(value=str(booking["down_payment_amount"]) if booking and booking["down_payment_amount"] is not None else "0")
-        self.balance_var = tk.StringVar(value=str(booking["balance_amount"]) if booking and booking["balance_amount"] is not None else "0")
+        self.total_amount_var = tk.StringVar(
+            value=str(booking["total_amount"]) if booking and booking["total_amount"] is not None else "0"
+        )
+        self.down_payment_var = tk.StringVar(
+            value=str(booking["down_payment_amount"]) if booking and booking["down_payment_amount"] is not None else "0"
+        )
+        self.balance_var = tk.StringVar(
+            value=str(booking["balance_amount"]) if booking and booking["balance_amount"] is not None else "0"
+        )
 
         self.load_dropdown_options()
         self.build_ui()
@@ -1618,33 +1741,49 @@ class BookingFormWindow(tk.Toplevel):
         self.update_balance_preview()
 
     def load_dropdown_options(self):
-        self.client_options = self.app.client_service.list_clients()
+        exclude_booking_id = self.booking["id"] if self.booking else None
+
+        self.client_options = self.app.client_service.list_clients_available_for_booking(
+            exclude_booking_id=exclude_booking_id
+        )
+
         self.package_options = self.app.package_service.list_packages()
         self.event_type_options = self.app.settings_service.list_event_types()
         self.status_options = self.app.settings_service.list_booking_statuses()
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        outer = ttk.Frame(self, padding=16)
+        outer.pack(fill="both", expand=True)
 
         ttk.Label(
-            frame,
+            outer,
             text="Add Booking" if self.mode == "add" else "Edit Booking",
             font=("Segoe UI", 18, "bold")
-        ).pack(anchor="w", pady=(0, 15))
+        ).pack(anchor="w", pady=(0, 12))
 
-        ttk.Label(frame, text="Client").pack(anchor="w")
+        body = ttk.Frame(outer)
+        body.pack(fill="both", expand=True)
+
+        left = ttk.Frame(body)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        right = ttk.Frame(body)
+        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        # LEFT COLUMN
+
+        ttk.Label(left, text="Client").pack(anchor="w")
         self.client_combo = ttk.Combobox(
-            frame,
+            left,
             textvariable=self.client_var,
             values=[self.format_client_option(item) for item in self.client_options],
             state="readonly"
         )
         self.client_combo.pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Package").pack(anchor="w")
+        ttk.Label(left, text="Package").pack(anchor="w")
         self.package_combo = ttk.Combobox(
-            frame,
+            left,
             textvariable=self.package_var,
             values=[self.format_package_option(item) for item in self.package_options],
             state="readonly"
@@ -1652,69 +1791,127 @@ class BookingFormWindow(tk.Toplevel):
         self.package_combo.pack(fill="x", pady=(3, 10))
         self.package_combo.bind("<<ComboboxSelected>>", lambda event: self.auto_fill_package_price())
 
-        ttk.Label(frame, text="Event Type").pack(anchor="w")
+        ttk.Label(left, text="Event Type").pack(anchor="w")
         self.event_type_combo = ttk.Combobox(
-            frame,
+            left,
             textvariable=self.event_type_var,
             values=[item["name"] for item in self.event_type_options],
             state="readonly"
         )
         self.event_type_combo.pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Status").pack(anchor="w")
+        ttk.Label(left, text="Status").pack(anchor="w")
         self.status_combo = ttk.Combobox(
-            frame,
+            left,
             textvariable=self.status_var,
             values=[item["name"] for item in self.status_options],
             state="readonly"
         )
         self.status_combo.pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Event Date").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.event_date_var).pack(fill="x", pady=(3, 10))
+        ttk.Label(left, text="Event Date").pack(anchor="w")
+        date_row = ttk.Frame(left)
+        date_row.pack(fill="x", pady=(3, 4))
 
-        ttk.Label(frame, text="Event Time").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.event_time_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Event Location").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.event_location_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Guest Count").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.guest_count_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Theme / Motif").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.theme_motif_var).pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Total Amount").pack(anchor="w")
-        total_entry = ttk.Entry(frame, textvariable=self.total_amount_var)
-        total_entry.pack(fill="x", pady=(3, 10))
-
-        ttk.Label(frame, text="Down Payment Amount").pack(anchor="w")
-        down_entry = ttk.Entry(frame, textvariable=self.down_payment_var)
-        down_entry.pack(fill="x", pady=(3, 10))
-
-        self.total_amount_var.trace_add("write", lambda *args: self.update_balance_preview())
-        self.down_payment_var.trace_add("write", lambda *args: self.update_balance_preview())
-
-        ttk.Label(frame, text="Balance").pack(anchor="w")
         ttk.Entry(
-            frame,
+            date_row,
+            textvariable=self.event_date_var,
+            state="readonly"
+        ).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            date_row,
+            text="Select Date",
+            command=self.open_date_picker
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Label(
+            left,
+            text="Only available dates can be selected. Minimum booking date is 3 days from today.",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(left, text="Event Time").pack(anchor="w")
+        ttk.Entry(left, textvariable=self.event_time_var).pack(fill="x", pady=(3, 4))
+
+        ttk.Label(
+            left,
+            text="Event time is required.",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 10))
+
+        # RIGHT COLUMN
+
+        ttk.Label(right, text="Event Location Address").pack(anchor="w")
+        ttk.Entry(right, textvariable=self.event_location_var).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(right, text="Guest Count").pack(anchor="w")
+        tk.Spinbox(
+            right,
+            from_=1,
+            to=1000,
+            textvariable=self.guest_count_var
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(right, text="Theme / Motif").pack(anchor="w")
+        ttk.Entry(right, textvariable=self.theme_motif_var).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(right, text="Total Amount").pack(anchor="w")
+        ttk.Entry(
+            right,
+            textvariable=self.total_amount_var,
+            state="readonly"
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(right, text="Required Down Payment").pack(anchor="w")
+        ttk.Entry(
+            right,
+            textvariable=self.down_payment_var,
+            state="readonly"
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(right, text="Balance").pack(anchor="w")
+        ttk.Entry(
+            right,
             textvariable=self.balance_var,
             state="readonly"
         ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Booking Notes").pack(anchor="w")
-        self.notes_box = tk.Text(frame, height=4, wrap="word")
-        self.notes_box.pack(fill="x", pady=(3, 15))
+        ttk.Label(right, text="Booking Notes").pack(anchor="w")
+        self.notes_box = tk.Text(right, height=7, wrap="word")
+        self.notes_box.pack(fill="both", expand=True, pady=(3, 0))
 
         if self.booking:
             self.notes_box.insert("1.0", self.booking["booking_notes"] or "")
 
+        # Bottom action buttons - always visible
+        button_row = ttk.Frame(outer)
+        button_row.pack(fill="x", pady=(16, 0))
+
         ttk.Button(
-            frame,
-            text="Save Booking",
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm",
             command=self.save_booking
-        ).pack(fill="x")
+        ).pack(side="right", padx=(0, 8))
+
+        self.total_amount_var.trace_add("write", lambda *args: self.update_balance_preview())
+        self.down_payment_var.trace_add("write", lambda *args: self.update_balance_preview())
+
+    def open_date_picker(self):
+        exclude_booking_id = self.booking["id"] if self.booking else None
+
+        DatePickerWindow(
+            app=self.app,
+            target_var=self.event_date_var,
+            initial_date=self.event_date_var.get(),
+            exclude_booking_id=exclude_booking_id
+        )
 
     def format_client_option(self, client):
         return f"{client['id']} - {client['full_name']}"
@@ -1798,9 +1995,14 @@ class BookingFormWindow(tk.Toplevel):
             return None
 
         try:
-            return int(value)
+            guest_count = int(value)
         except ValueError:
             raise ValueError("Guest count must be a whole number.")
+
+        if guest_count < 1:
+            raise ValueError("Guest count must be at least 1.")
+
+        return guest_count
 
     def get_money_value(self, value, label):
         value = value.strip()
@@ -1823,6 +2025,7 @@ class BookingFormWindow(tk.Toplevel):
                 self.balance_var.set("Invalid")
             else:
                 self.balance_var.set(f"{balance:.2f}")
+
         except ValueError:
             self.balance_var.set("Invalid")
 
@@ -1830,22 +2033,29 @@ class BookingFormWindow(tk.Toplevel):
         package_id = self.get_selected_id_from_option(self.package_var.get())
 
         if not package_id:
+            self.total_amount_var.set("0")
+            self.down_payment_var.set("0")
+            self.balance_var.set("0")
             return
 
         for package in self.package_options:
             if package["id"] == package_id:
-                min_price = package["min_price"]
+                min_price = package["min_price"] or 0
 
-                if min_price is not None:
-                    self.total_amount_var.set(str(min_price))
+                self.total_amount_var.set(str(min_price))
 
-                    try:
-                        settings = self.app.settings_service.get_all_settings()
-                        down_percentage = float(settings.get("down_payment_percentage", "50"))
-                        down_amount = float(min_price) * (down_percentage / 100)
-                        self.down_payment_var.set(f"{down_amount:.2f}")
-                    except Exception:
-                        pass
+                try:
+                    settings = self.app.settings_service.get_all_settings()
+                    down_percentage = float(settings.get("down_payment_percentage", "50"))
+                    down_amount = float(min_price) * (down_percentage / 100)
+                    balance = float(min_price) - down_amount
+
+                    self.down_payment_var.set(f"{down_amount:.2f}")
+                    self.balance_var.set(f"{balance:.2f}")
+
+                except Exception:
+                    self.down_payment_var.set("0")
+                    self.balance_var.set(str(min_price))
 
                 break
 
@@ -1911,6 +2121,1321 @@ class BookingFormWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+
+class SchedulePage(ttk.Frame):
+    def __init__(self, parent, app: PanaloApp):
+        super().__init__(parent)
+
+        self.app = app
+
+        today = date.today()
+        self.selected_date = today
+        self.current_year = today.year
+        self.current_month = today.month
+
+        self.current_view = "month"
+        self.search_var = tk.StringVar()
+
+        self.selected_schedule_id = None
+
+        self.build_ui()
+        self.render_current_view()
+
+    def build_ui(self):
+        header = ttk.Frame(self)
+        header.pack(fill="x", pady=(0, 12))
+
+        ttk.Label(
+            header,
+            text="Schedule",
+            font=("Segoe UI", 24, "bold")
+        ).pack(side="left")
+
+        ttk.Button(
+            header,
+            text="Refresh",
+            command=self.render_current_view
+        ).pack(side="right")
+
+        nav_bar = ttk.Frame(self)
+        nav_bar.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            nav_bar,
+            text="Today",
+            command=self.go_today
+        ).pack(side="left")
+
+        ttk.Button(
+            nav_bar,
+            text="‹",
+            width=4,
+            command=self.previous_period
+        ).pack(side="left", padx=(8, 2))
+
+        ttk.Button(
+            nav_bar,
+            text="›",
+            width=4,
+            command=self.next_period
+        ).pack(side="left", padx=(2, 15))
+
+        self.title_label = ttk.Label(
+            nav_bar,
+            text="",
+            font=("Segoe UI", 16, "bold")
+        )
+        self.title_label.pack(side="left")
+
+        view_buttons = ttk.Frame(nav_bar)
+        view_buttons.pack(side="right")
+
+        ttk.Button(
+            view_buttons,
+            text="Month",
+            command=lambda: self.change_view("month")
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            view_buttons,
+            text="Week",
+            command=lambda: self.change_view("week")
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            view_buttons,
+            text="Day",
+            command=lambda: self.change_view("day")
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            view_buttons,
+            text="List",
+            command=lambda: self.change_view("list")
+        ).pack(side="left", padx=2)
+
+        self.content_frame = ttk.Frame(self)
+        self.content_frame.pack(fill="both", expand=True)
+
+    def clear_content(self):
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+
+    def change_view(self, view_name):
+        self.current_view = view_name
+
+        if view_name == "month":
+            self.current_year = self.selected_date.year
+            self.current_month = self.selected_date.month
+
+        self.render_current_view()
+
+    def render_current_view(self):
+        self.clear_content()
+
+        if self.current_view == "month":
+            self.render_month_view()
+        elif self.current_view == "week":
+            self.render_week_view()
+        elif self.current_view == "day":
+            self.render_day_view()
+        elif self.current_view == "list":
+            self.render_list_view()
+
+    def go_today(self):
+        today = date.today()
+        self.selected_date = today
+        self.current_year = today.year
+        self.current_month = today.month
+        self.render_current_view()
+
+    def previous_period(self):
+        if self.current_view == "month":
+            self.current_month -= 1
+
+            if self.current_month == 0:
+                self.current_month = 12
+                self.current_year -= 1
+
+            self.selected_date = date(self.current_year, self.current_month, 1)
+
+        elif self.current_view == "week":
+            self.selected_date -= timedelta(days=7)
+
+        elif self.current_view == "day":
+            self.selected_date -= timedelta(days=1)
+
+        elif self.current_view == "list":
+            self.selected_date -= timedelta(days=30)
+
+        self.render_current_view()
+
+    def next_period(self):
+        if self.current_view == "month":
+            self.current_month += 1
+
+            if self.current_month == 13:
+                self.current_month = 1
+                self.current_year += 1
+
+            self.selected_date = date(self.current_year, self.current_month, 1)
+
+        elif self.current_view == "week":
+            self.selected_date += timedelta(days=7)
+
+        elif self.current_view == "day":
+            self.selected_date += timedelta(days=1)
+
+        elif self.current_view == "list":
+            self.selected_date += timedelta(days=30)
+
+        self.render_current_view()
+
+    def parse_date(self, date_text):
+        try:
+            return datetime.strptime(date_text, "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    def format_schedule_text(self, schedule):
+        event_time = schedule["event_time"] or "No time"
+        client = schedule["client_name"] or "Client"
+        return f"{event_time} - {client}"
+
+    def get_week_dates(self):
+        start = self.selected_date - timedelta(days=(self.selected_date.weekday() + 1) % 7)
+        return [start + timedelta(days=i) for i in range(7)]
+
+    def render_month_view(self):
+        month_name = calendar.month_name[self.current_month]
+        self.title_label.config(text=f"{month_name} {self.current_year}")
+
+        calendar_frame = ttk.Frame(self.content_frame)
+        calendar_frame.pack(fill="both", expand=True)
+
+        schedules = self.app.schedule_service.list_schedules_for_month(
+            self.current_year,
+            self.current_month
+        )
+
+        schedules_by_date = {}
+
+        for sched in schedules:
+            event_date = sched["event_date"]
+
+            if event_date:
+                schedules_by_date.setdefault(event_date, []).append(sched)
+
+        day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+        for col, day_name in enumerate(day_names):
+            ttk.Label(
+                calendar_frame,
+                text=day_name,
+                anchor="center",
+                font=("Segoe UI", 10, "bold")
+            ).grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+
+        cal = calendar.Calendar(firstweekday=6)
+        month_days = cal.monthdayscalendar(self.current_year, self.current_month)
+
+        today = date.today()
+
+        for row_index, week in enumerate(month_days, start=1):
+            for col_index, day_number in enumerate(week):
+                cell_bg = "white"
+
+                cell = tk.Frame(
+                    calendar_frame,
+                    bg=cell_bg,
+                    relief="solid",
+                    bd=1,
+                    height=115
+                )
+                cell.grid(
+                    row=row_index,
+                    column=col_index,
+                    sticky="nsew",
+                    padx=1,
+                    pady=1
+                )
+                cell.grid_propagate(False)
+
+                if day_number == 0:
+                    continue
+
+                date_key = f"{self.current_year:04d}-{self.current_month:02d}-{day_number:02d}"
+                cell_date = date(self.current_year, self.current_month, day_number)
+
+                if cell_date == today:
+                    cell.config(bg="#e8f0fe")
+                    cell_bg = "#e8f0fe"
+
+                day_label = tk.Label(
+                    cell,
+                    text=str(day_number),
+                    bg=cell_bg,
+                    fg="#1a73e8" if cell_date == today else "black",
+                    anchor="w",
+                    font=("Segoe UI", 10, "bold"),
+                    cursor="hand2"
+                )
+                day_label.pack(anchor="nw", padx=5, pady=(4, 2))
+
+                day_label.bind(
+                    "<Button-1>",
+                    lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
+                )
+
+                cell.bind(
+                    "<Button-1>",
+                    lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
+                )
+
+                day_schedules = schedules_by_date.get(date_key, [])
+
+                for sched in day_schedules[:3]:
+                    event_label = tk.Label(
+                        cell,
+                        text=self.format_schedule_text(sched),
+                        bg="#dbeafe",
+                        fg="#1d4ed8",
+                        anchor="w",
+                        font=("Segoe UI", 8),
+                        cursor="hand2"
+                    )
+                    event_label.pack(fill="x", padx=4, pady=1)
+
+                    event_label.bind(
+                        "<Button-1>",
+                        lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
+                    )
+
+                if len(day_schedules) > 3:
+                    more_label = tk.Label(
+                        cell,
+                        text=f"+{len(day_schedules) - 3} more",
+                        bg=cell_bg,
+                        fg="#555555",
+                        anchor="w",
+                        font=("Segoe UI", 8),
+                        cursor="hand2"
+                    )
+                    more_label.pack(fill="x", padx=4, pady=1)
+
+                    more_label.bind(
+                        "<Button-1>",
+                        lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
+                    )
+
+        for col in range(7):
+            calendar_frame.columnconfigure(col, weight=1)
+
+        for row in range(7):
+            calendar_frame.rowconfigure(row, weight=1)
+
+    def render_week_view(self):
+        week_dates = self.get_week_dates()
+        start_date = week_dates[0]
+        end_date = week_dates[-1]
+
+        self.title_label.config(
+            text=f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+        )
+
+        week_frame = ttk.Frame(self.content_frame)
+        week_frame.pack(fill="both", expand=True)
+
+        for col, day in enumerate(week_dates):
+            day_header = tk.Frame(
+                week_frame,
+                bg="#f8f9fa",
+                relief="solid",
+                bd=1
+            )
+            day_header.grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+
+            tk.Label(
+                day_header,
+                text=day.strftime("%a\n%b %d"),
+                bg="#f8f9fa",
+                font=("Segoe UI", 10, "bold"),
+                cursor="hand2"
+            ).pack(fill="x", pady=6)
+
+            day_body = tk.Frame(
+                week_frame,
+                bg="white",
+                relief="solid",
+                bd=1
+            )
+            day_body.grid(row=1, column=col, sticky="nsew", padx=1, pady=1)
+
+            day_key = day.strftime("%Y-%m-%d")
+            schedules = self.app.schedule_service.list_schedules_for_date(day_key)
+
+            day_body.bind(
+                "<Button-1>",
+                lambda event, selected_date=day: self.open_day_from_date(selected_date)
+            )
+
+            for sched in schedules:
+                event_card = tk.Label(
+                    day_body,
+                    text=self.format_schedule_text(sched),
+                    bg="#dbeafe",
+                    fg="#1d4ed8",
+                    anchor="w",
+                    justify="left",
+                    wraplength=120,
+                    font=("Segoe UI", 8),
+                    cursor="hand2"
+                )
+                event_card.pack(fill="x", padx=5, pady=3)
+
+                event_card.bind(
+                    "<Button-1>",
+                    lambda event, selected_date=day: self.open_day_from_date(selected_date)
+                )
+
+        for col in range(7):
+            week_frame.columnconfigure(col, weight=1)
+
+        week_frame.rowconfigure(1, weight=1)
+
+    def render_day_view(self):
+        selected_text = self.selected_date.strftime("%A, %B %d, %Y")
+        self.title_label.config(text=selected_text)
+
+        self.selected_schedule_id = None
+
+        main = ttk.Frame(self.content_frame)
+        main.pack(fill="both", expand=True)
+
+        left = ttk.Frame(main)
+        left.pack(side="left", fill="both", expand=True)
+
+        right = ttk.Frame(main, width=250)
+        right.pack(side="right", fill="y", padx=(15, 0))
+        right.pack_propagate(False)
+
+        date_key = self.selected_date.strftime("%Y-%m-%d")
+        schedules = self.app.schedule_service.list_schedules_for_date(date_key)
+
+        columns = (
+            "id",
+            "time",
+            "client",
+            "event_type",
+            "package",
+            "location",
+            "status"
+        )
+
+        self.day_table = ttk.Treeview(
+            left,
+            columns=columns,
+            show="headings",
+            height=16
+        )
+
+        self.day_table.heading("id", text="ID")
+        self.day_table.heading("time", text="Time")
+        self.day_table.heading("client", text="Client")
+        self.day_table.heading("event_type", text="Event Type")
+        self.day_table.heading("package", text="Package")
+        self.day_table.heading("location", text="Location")
+        self.day_table.heading("status", text="Status")
+
+        self.day_table.column("id", width=50)
+        self.day_table.column("time", width=90)
+        self.day_table.column("client", width=150)
+        self.day_table.column("event_type", width=130)
+        self.day_table.column("package", width=180)
+        self.day_table.column("location", width=200)
+        self.day_table.column("status", width=110)
+
+        self.day_table.pack(fill="both", expand=True)
+
+        for sched in schedules:
+            self.day_table.insert(
+                "",
+                "end",
+                values=(
+                    sched["id"],
+                    sched["event_time"] or "",
+                    sched["client_name"] or "",
+                    sched["event_type"] or "",
+                    sched["package_name"] or "",
+                    sched["event_location"] or "",
+                    sched["status"] or ""
+                )
+            )
+
+        self.day_table.bind("<<TreeviewSelect>>", self.handle_day_selection)
+
+        ttk.Label(
+            right,
+            text="Actions",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Button(
+            right,
+            text="View Details",
+            command=self.view_selected_details
+        ).pack(fill="x", pady=4)
+
+        ttk.Button(
+            right,
+            text="Reschedule",
+            command=self.open_reschedule_window
+        ).pack(fill="x", pady=4)
+
+        ttk.Button(
+            right,
+            text="Cancel Schedule",
+            command=self.cancel_selected_schedule
+        ).pack(fill="x", pady=4)
+
+        ttk.Button(
+            right,
+            text="Refresh Day",
+            command=self.render_current_view
+        ).pack(fill="x", pady=(20, 4))
+
+        ttk.Label(
+            right,
+            text="Tip: Select a schedule from the table first.",
+            wraplength=220,
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(20, 0))
+
+    def handle_day_selection(self, event=None):
+        selected = self.day_table.selection()
+
+        if not selected:
+            self.selected_schedule_id = None
+            return
+
+        values = self.day_table.item(selected[0], "values")
+        self.selected_schedule_id = int(values[0])
+
+    def render_list_view(self):
+        self.title_label.config(text="All Schedules")
+
+        top = ttk.Frame(self.content_frame)
+        top.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(top, text="Search").pack(side="left")
+
+        ttk.Entry(
+            top,
+            textvariable=self.search_var,
+            width=35
+        ).pack(side="left", padx=(8, 8))
+
+        ttk.Button(
+            top,
+            text="Search",
+            command=self.search_list_view
+        ).pack(side="left")
+
+        ttk.Button(
+            top,
+            text="Clear",
+            command=self.clear_list_search
+        ).pack(side="left", padx=(8, 0))
+
+        columns = (
+            "id",
+            "date",
+            "time",
+            "client",
+            "event_type",
+            "package",
+            "location",
+            "status"
+        )
+
+        self.list_table = ttk.Treeview(
+            self.content_frame,
+            columns=columns,
+            show="headings",
+            height=16
+        )
+
+        self.list_table.heading("id", text="ID")
+        self.list_table.heading("date", text="Date")
+        self.list_table.heading("time", text="Time")
+        self.list_table.heading("client", text="Client")
+        self.list_table.heading("event_type", text="Event Type")
+        self.list_table.heading("package", text="Package")
+        self.list_table.heading("location", text="Location")
+        self.list_table.heading("status", text="Status")
+
+        self.list_table.column("id", width=50)
+        self.list_table.column("date", width=100)
+        self.list_table.column("time", width=90)
+        self.list_table.column("client", width=150)
+        self.list_table.column("event_type", width=130)
+        self.list_table.column("package", width=190)
+        self.list_table.column("location", width=180)
+        self.list_table.column("status", width=110)
+
+        self.list_table.pack(fill="both", expand=True)
+
+        action_bar = ttk.Frame(self.content_frame)
+        action_bar.pack(fill="x", pady=(10, 0))
+
+        ttk.Button(
+            action_bar,
+            text="Open Selected Day",
+            command=self.open_selected_day_from_list
+        ).pack(side="left")
+
+        ttk.Button(
+            action_bar,
+            text="View Details",
+            command=self.view_selected_details_from_list
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            action_bar,
+            text="Refresh",
+            command=self.render_current_view
+        ).pack(side="right")
+
+        self.load_list_table()
+
+    def load_list_table(self, search_text=""):
+        for item in self.list_table.get_children():
+            self.list_table.delete(item)
+
+        schedules = self.app.schedule_service.list_all_schedules(search_text)
+
+        for sched in schedules:
+            self.list_table.insert(
+                "",
+                "end",
+                values=(
+                    sched["id"],
+                    sched["event_date"] or "",
+                    sched["event_time"] or "",
+                    sched["client_name"] or "",
+                    sched["event_type"] or "",
+                    sched["package_name"] or "",
+                    sched["event_location"] or "",
+                    sched["status"] or ""
+                )
+            )
+
+    def search_list_view(self):
+        self.load_list_table(self.search_var.get())
+
+    def clear_list_search(self):
+        self.search_var.set("")
+        self.load_list_table()
+
+    def open_day_from_date(self, selected_date):
+        self.selected_date = selected_date
+        self.current_view = "day"
+        self.render_current_view()
+
+    def open_selected_day_from_list(self):
+        selected = self.list_table.selection()
+
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return
+
+        values = self.list_table.item(selected[0], "values")
+        selected_date = self.parse_date(values[1])
+
+        if not selected_date:
+            messagebox.showerror("Error", "Selected schedule has no valid event date.")
+            return
+
+        self.open_day_from_date(selected_date)
+
+    def get_selected_schedule_id_from_list(self):
+        selected = self.list_table.selection()
+
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return None
+
+        values = self.list_table.item(selected[0], "values")
+        return int(values[0])
+
+    def view_selected_details_from_list(self):
+        booking_id = self.get_selected_schedule_id_from_list()
+
+        if not booking_id:
+            return
+
+        self.show_schedule_details(booking_id)
+
+    def view_selected_details(self):
+        if not self.selected_schedule_id:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return
+
+        self.show_schedule_details(self.selected_schedule_id)
+
+    def show_schedule_details(self, booking_id):
+        sched = self.app.schedule_service.get_schedule_by_booking_id(booking_id)
+
+        if not sched:
+            messagebox.showerror("Error", "Schedule not found.")
+            return
+
+        details = (
+            f"Client: {sched['client_name'] or ''}\n"
+            f"Event Type: {sched['event_type'] or ''}\n"
+            f"Package: {sched['package_name'] or ''}\n"
+            f"Date: {sched['event_date'] or ''}\n"
+            f"Time: {sched['event_time'] or ''}\n"
+            f"Location: {sched['event_location'] or ''}\n"
+            f"Guest Count: {sched['guest_count'] or ''}\n"
+            f"Theme / Motif: {sched['theme_motif'] or ''}\n"
+            f"Status: {sched['status'] or ''}\n"
+            f"Total Amount: {sched['total_amount'] or 0}\n"
+            f"Down Payment: {sched['down_payment_amount'] or 0}\n"
+            f"Balance: {sched['balance_amount'] or 0}\n\n"
+            f"Notes:\n{sched['booking_notes'] or ''}"
+        )
+
+        messagebox.showinfo("Schedule Details", details)
+
+    def open_reschedule_window(self):
+        if not self.selected_schedule_id:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return
+
+        sched = self.app.schedule_service.get_schedule_by_booking_id(
+            self.selected_schedule_id
+        )
+
+        if not sched:
+            messagebox.showerror("Error", "Schedule not found.")
+            return
+
+        ScheduleRescheduleWindow(
+            app=self.app,
+            schedule=sched,
+            refresh_callback=self.render_current_view
+        )
+
+    def cancel_selected_schedule(self):
+        if not self.selected_schedule_id:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Cancel",
+            "Are you sure you want to cancel this schedule?"
+        )
+
+        if not confirm:
+            return
+
+        try:
+            self.app.schedule_service.cancel_schedule(
+                booking_id=self.selected_schedule_id,
+                actor_id=self.app.current_user.id
+            )
+
+            messagebox.showinfo("Cancelled", "Schedule cancelled successfully.")
+            self.render_current_view()
+
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+class ScheduleRescheduleWindow(tk.Toplevel):
+    def __init__(self, app: PanaloApp, schedule, refresh_callback):
+        super().__init__()
+
+        self.app = app
+        self.schedule = schedule
+        self.refresh_callback = refresh_callback
+
+        self.title("Reschedule Booking")
+        self.geometry("420x260")
+        self.resizable(False, False)
+
+        self.date_var = tk.StringVar(value=schedule["event_date"] or "")
+        self.time_var = tk.StringVar(value=schedule["event_time"] or "")
+
+        self.build_ui()
+
+    def build_ui(self):
+        frame = ttk.Frame(self, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="Reschedule Booking",
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(
+            frame,
+            text=f"Client: {self.schedule['client_name'] or ''}",
+            font=("Segoe UI", 10)
+        ).pack(anchor="w", pady=(0, 15))
+
+        ttk.Label(frame, text="New Event Date").pack(anchor="w")
+        ttk.Entry(
+            frame,
+            textvariable=self.date_var
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(frame, text="New Event Time").pack(anchor="w")
+        ttk.Entry(
+            frame,
+            textvariable=self.time_var
+        ).pack(fill="x", pady=(3, 15))
+
+        ttk.Label(
+            frame,
+            text="Format: YYYY-MM-DD | Must be at least 3 days from today",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 15))
+
+        ttk.Button(
+            frame,
+            text="Save Reschedule",
+            command=self.save_reschedule
+        ).pack(fill="x")
+
+    def save_reschedule(self):
+        try:
+            self.app.schedule_service.reschedule_booking(
+                booking_id=self.schedule["id"],
+                new_event_date=self.date_var.get(),
+                new_event_time=self.time_var.get(),
+                actor_id=self.app.current_user.id
+            )
+
+            messagebox.showinfo(
+                "Success",
+                "Booking schedule was updated successfully."
+            )
+
+            self.refresh_callback()
+            self.destroy()
+
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+class PaymentPage(ttk.Frame):
+    def __init__(self, parent, app: PanaloApp):
+        super().__init__(parent)
+
+        self.app = app
+        self.search_var = tk.StringVar()
+        self.selected_booking_id = None
+        self.selected_payment_id = None
+
+        self.build_ui()
+        self.load_booking_summaries()
+
+    def build_ui(self):
+        header = ttk.Frame(self)
+        header.pack(fill="x", pady=(0, 15))
+
+        ttk.Label(
+            header,
+            text="Payment",
+            font=("Segoe UI", 24, "bold")
+        ).pack(side="left")
+
+        ttk.Button(
+            header,
+            text="Refresh",
+            command=self.refresh_all
+        ).pack(side="right")
+
+        search_bar = ttk.Frame(self)
+        search_bar.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(search_bar, text="Search Booking").pack(side="left")
+
+        ttk.Entry(
+            search_bar,
+            textvariable=self.search_var,
+            width=35
+        ).pack(side="left", padx=(8, 8))
+
+        ttk.Button(
+            search_bar,
+            text="Search",
+            command=self.search_booking_summaries
+        ).pack(side="left")
+
+        ttk.Button(
+            search_bar,
+            text="Clear",
+            command=self.clear_search
+        ).pack(side="left", padx=(8, 0))
+
+        main = ttk.Frame(self)
+        main.pack(fill="both", expand=True)
+
+        booking_frame = ttk.LabelFrame(main, text="Bookings / Payment Summary", padding=10)
+        booking_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+        booking_columns = (
+            "booking_id",
+            "client_name",
+            "event_date",
+            "package_name",
+            "total_amount",
+            "net_paid",
+            "balance",
+            "payment_status"
+        )
+
+        self.booking_table = ttk.Treeview(
+            booking_frame,
+            columns=booking_columns,
+            show="headings",
+            height=9
+        )
+
+        self.booking_table.heading("booking_id", text="ID")
+        self.booking_table.heading("client_name", text="Client")
+        self.booking_table.heading("event_date", text="Event Date")
+        self.booking_table.heading("package_name", text="Package")
+        self.booking_table.heading("total_amount", text="Total")
+        self.booking_table.heading("net_paid", text="Paid")
+        self.booking_table.heading("balance", text="Balance")
+        self.booking_table.heading("payment_status", text="Status")
+
+        self.booking_table.column("booking_id", width=50)
+        self.booking_table.column("client_name", width=150)
+        self.booking_table.column("event_date", width=100)
+        self.booking_table.column("package_name", width=220)
+        self.booking_table.column("total_amount", width=100)
+        self.booking_table.column("net_paid", width=100)
+        self.booking_table.column("balance", width=100)
+        self.booking_table.column("payment_status", width=100)
+
+        self.booking_table.pack(fill="both", expand=True)
+        self.booking_table.bind("<<TreeviewSelect>>", self.handle_booking_selection)
+
+        payment_frame = ttk.LabelFrame(main, text="Payment History", padding=10)
+        payment_frame.pack(fill="both", expand=True)
+
+        payment_columns = (
+            "id",
+            "payment_type",
+            "amount",
+            "payment_method",
+            "reference_number",
+            "payment_date",
+            "verification_status"
+        )
+
+        self.payment_table = ttk.Treeview(
+            payment_frame,
+            columns=payment_columns,
+            show="headings",
+            height=8
+        )
+
+        self.payment_table.heading("id", text="ID")
+        self.payment_table.heading("payment_type", text="Type")
+        self.payment_table.heading("amount", text="Amount")
+        self.payment_table.heading("payment_method", text="Method")
+        self.payment_table.heading("reference_number", text="Reference")
+        self.payment_table.heading("payment_date", text="Date")
+        self.payment_table.heading("verification_status", text="Verification")
+
+        self.payment_table.column("id", width=50)
+        self.payment_table.column("payment_type", width=130)
+        self.payment_table.column("amount", width=100)
+        self.payment_table.column("payment_method", width=120)
+        self.payment_table.column("reference_number", width=150)
+        self.payment_table.column("payment_date", width=100)
+        self.payment_table.column("verification_status", width=120)
+
+        self.payment_table.pack(fill="both", expand=True)
+        self.payment_table.bind("<<TreeviewSelect>>", self.handle_payment_selection)
+
+        action_bar = ttk.Frame(self)
+        action_bar.pack(fill="x", pady=(12, 0))
+
+        ttk.Button(
+            action_bar,
+            text="Add Payment",
+            command=self.open_add_payment_window
+        ).pack(side="left")
+
+        ttk.Button(
+            action_bar,
+            text="Verify Selected Payment",
+            command=self.verify_selected_payment
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            action_bar,
+            text="Reject Selected Payment",
+            command=self.reject_selected_payment
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            action_bar,
+            text="Refresh",
+            command=self.refresh_all
+        ).pack(side="right")
+
+    def format_price(self, value):
+        try:
+            return f"₱{float(value or 0):,.2f}"
+        except Exception:
+            return "₱0.00"
+
+    def load_booking_summaries(self, search_text=""):
+        for item in self.booking_table.get_children():
+            self.booking_table.delete(item)
+
+        summaries = self.app.payment_service.list_booking_payment_summaries(search_text)
+
+        for item in summaries:
+            self.booking_table.insert(
+                "",
+                "end",
+                values=(
+                    item["booking_id"],
+                    item["client_name"] or "",
+                    item["event_date"] or "",
+                    item["package_name"] or "",
+                    self.format_price(item["total_amount"]),
+                    self.format_price(item["net_paid"]),
+                    self.format_price(item["balance"]),
+                    item["payment_status"]
+                )
+            )
+
+    def load_payment_history(self):
+        for item in self.payment_table.get_children():
+            self.payment_table.delete(item)
+
+        if not self.selected_booking_id:
+            return
+
+        payments = self.app.payment_service.list_payments_by_booking(
+            self.selected_booking_id
+        )
+
+        for payment in payments:
+            self.payment_table.insert(
+                "",
+                "end",
+                values=(
+                    payment["id"],
+                    payment["payment_type"],
+                    self.format_price(payment["amount"]),
+                    payment["payment_method"] or "",
+                    payment["reference_number"] or "",
+                    payment["payment_date"] or "",
+                    payment["verification_status"]
+                )
+            )
+
+    def handle_booking_selection(self, event=None):
+        selected = self.booking_table.selection()
+
+        if not selected:
+            self.selected_booking_id = None
+            return
+
+        values = self.booking_table.item(selected[0], "values")
+        self.selected_booking_id = int(values[0])
+        self.selected_payment_id = None
+        self.load_payment_history()
+
+    def handle_payment_selection(self, event=None):
+        selected = self.payment_table.selection()
+
+        if not selected:
+            self.selected_payment_id = None
+            return
+
+        values = self.payment_table.item(selected[0], "values")
+        self.selected_payment_id = int(values[0])
+
+    def search_booking_summaries(self):
+        self.load_booking_summaries(self.search_var.get())
+
+    def clear_search(self):
+        self.search_var.set("")
+        self.load_booking_summaries()
+
+    def refresh_all(self):
+        current_booking = self.selected_booking_id
+        self.load_booking_summaries(self.search_var.get())
+
+        if current_booking:
+            self.selected_booking_id = current_booking
+            self.load_payment_history()
+
+    def open_add_payment_window(self):
+        if not self.selected_booking_id:
+            messagebox.showwarning("No Booking Selected", "Please select a booking first.")
+            return
+
+        PaymentFormWindow(
+            app=self.app,
+            parent_page=self,
+            booking_id=self.selected_booking_id
+        )
+
+    def verify_selected_payment(self):
+        if not self.selected_payment_id:
+            messagebox.showwarning("No Payment Selected", "Please select a payment first.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Verification",
+            "Verify this payment?"
+        )
+
+        if not confirm:
+            return
+
+        try:
+            self.app.payment_service.verify_payment(
+                payment_id=self.selected_payment_id,
+                actor_id=self.app.current_user.id
+            )
+
+            messagebox.showinfo("Verified", "Payment verified successfully.")
+            self.refresh_all()
+
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+    def reject_selected_payment(self):
+        if not self.selected_payment_id:
+            messagebox.showwarning("No Payment Selected", "Please select a payment first.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Rejection",
+            "Reject this payment?"
+        )
+
+        if not confirm:
+            return
+
+        try:
+            self.app.payment_service.reject_payment(
+                payment_id=self.selected_payment_id,
+                actor_id=self.app.current_user.id
+            )
+
+            messagebox.showinfo("Rejected", "Payment rejected successfully.")
+            self.refresh_all()
+
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+class PaymentFormWindow(tk.Toplevel):
+    def __init__(self, app: PanaloApp, parent_page: PaymentPage, booking_id: int):
+        super().__init__()
+
+        self.app = app
+        self.parent_page = parent_page
+        self.booking_id = booking_id
+
+        self.summary = self.app.payment_service.get_booking_payment_summary(booking_id)
+
+        if not self.summary:
+            messagebox.showerror("Error", "Booking payment summary not found.")
+            self.destroy()
+            return
+
+        self.title("Add Payment")
+        self.geometry("520x620")
+        self.resizable(False, False)
+
+        self.payment_type_var = tk.StringVar(value="Down Payment")
+        self.amount_var = tk.StringVar()
+        self.payment_method_var = tk.StringVar(value="GCash")
+        self.reference_number_var = tk.StringVar()
+        self.payment_date_var = tk.StringVar()
+        self.notes_var = tk.StringVar()
+
+        self.build_ui()
+        self.update_amount_by_type()
+
+    def build_ui(self):
+        frame = ttk.Frame(self, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="Add Payment",
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 15))
+
+        info = (
+            f"Booking ID: {self.booking_id}\n"
+            f"Client: {self.summary['client_name'] or ''}\n"
+            f"Package: {self.summary['package_name'] or ''}\n"
+            f"Event Date: {self.summary['event_date'] or ''}\n"
+            f"Total Amount: ₱{float(self.summary['total_amount'] or 0):,.2f}\n"
+            f"Paid Amount: ₱{float(self.summary['net_paid'] or 0):,.2f}\n"
+            f"Balance: ₱{float(self.summary['balance'] or 0):,.2f}"
+        )
+
+        ttk.Label(
+            frame,
+            text=info,
+            font=("Segoe UI", 10),
+            justify="left"
+        ).pack(anchor="w", pady=(0, 15))
+
+        ttk.Label(frame, text="Payment Type").pack(anchor="w")
+        payment_combo = ttk.Combobox(
+            frame,
+            textvariable=self.payment_type_var,
+            values=[
+                "Down Payment",
+                "Full Payment",
+                "Refund"
+            ],
+            state="readonly"
+        )
+        payment_combo.pack(fill="x", pady=(3, 10))
+        payment_combo.bind("<<ComboboxSelected>>", lambda event: self.update_amount_by_type())
+
+        ttk.Label(frame, text="Amount").pack(anchor="w")
+        ttk.Entry(
+            frame,
+            textvariable=self.amount_var,
+            state="readonly"
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(frame, text="Payment Method").pack(anchor="w")
+        ttk.Combobox(
+            frame,
+            textvariable=self.payment_method_var,
+            values=[
+                "Cash",
+                "GCash",
+                "Bank Transfer",
+                "Maya",
+                "Other"
+            ],
+            state="readonly"
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(frame, text="Reference Number").pack(anchor="w")
+        ttk.Entry(
+            frame,
+            textvariable=self.reference_number_var
+        ).pack(fill="x", pady=(3, 10))
+
+        ttk.Label(frame, text="Payment Date").pack(anchor="w")
+        ttk.Entry(
+            frame,
+            textvariable=self.payment_date_var
+        ).pack(fill="x", pady=(3, 4))
+
+        ttk.Label(
+            frame,
+            text="Recommended date format: YYYY-MM-DD",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(frame, text="Notes").pack(anchor="w")
+        self.notes_box = tk.Text(frame, height=5, wrap="word")
+        self.notes_box.pack(fill="x", pady=(3, 15))
+
+        button_row = ttk.Frame(frame)
+        button_row.pack(fill="x")
+
+        ttk.Button(
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm",
+            command=self.save_payment
+        ).pack(side="right", padx=(0, 8))
+
+    def update_amount_by_type(self):
+        payment_type = self.payment_type_var.get()
+
+        total_amount = float(self.summary["total_amount"] or 0)
+        balance = float(self.summary["balance"] or 0)
+
+        if payment_type == "Down Payment":
+            settings = self.app.settings_service.get_all_settings()
+            down_percentage = float(settings.get("down_payment_percentage", "50"))
+            amount = total_amount * (down_percentage / 100)
+
+        elif payment_type == "Full Payment":
+            amount = balance
+
+        elif payment_type == "Refund":
+            amount = self.app.payment_service.get_refundable_amount_by_booking(
+                self.booking_id
+            )
+
+        else:
+            amount = 0
+
+        if amount < 0:
+            amount = 0
+
+        self.amount_var.set(f"{amount:.2f}")
+
+    def get_amount(self):
+        try:
+            amount = float(self.amount_var.get() or 0)
+        except ValueError:
+            raise ValueError("Amount must be a valid number.")
+
+        if amount <= 0:
+            raise ValueError("Amount must be greater than zero.")
+
+        return amount
+
+    def save_payment(self):
+        try:
+            amount = self.get_amount()
+
+            self.app.payment_service.add_payment(
+                booking_id=self.booking_id,
+                payment_type=self.payment_type_var.get(),
+                amount=amount,
+                payment_method=self.payment_method_var.get(),
+                reference_number=self.reference_number_var.get(),
+                payment_date=self.payment_date_var.get(),
+                notes=self.notes_box.get("1.0", "end").strip(),
+                created_by=self.app.current_user.id
+            )
+
+            messagebox.showinfo(
+                "Payment Saved",
+                "Payment recorded successfully. It is pending verification."
+            )
+
+            self.parent_page.refresh_all()
+            self.destroy()
+
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
 
 class SettingsPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):

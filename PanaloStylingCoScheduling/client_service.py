@@ -1,9 +1,16 @@
+from datetime import datetime
+
 from db import Database
 
 
 class ClientService:
     def __init__(self, db: Database):
         self.db = db
+
+    def validate_client_details(self, full_name: str):
+        if not full_name.strip():
+            raise ValueError("Client full name is required.")
+
 
     def list_clients(self, search_text: str = ""):
         search_text = search_text.strip()
@@ -13,32 +20,19 @@ class ClientService:
                 rows = conn.execute(
                     """
                     SELECT 
-                        c.id,
-                        c.full_name,
-                        c.contact_number,
-                        et.name AS event_type,
-                        c.event_date,
-                        c.event_location,
-                        c.guest_count,
-                        c.theme_motif,
-                        c.preferred_package,
-                        bs.name AS status,
-                        c.notes,
-                        c.created_at
-                    FROM clients c
-                    LEFT JOIN event_types et ON c.event_type_id = et.id
-                    LEFT JOIN booking_statuses bs ON c.status_id = bs.id
+                        id,
+                        full_name,
+                        contact_number,
+                        notes,
+                        created_at
+                    FROM clients
                     WHERE 
-                        c.full_name LIKE ?
-                        OR c.contact_number LIKE ?
-                        OR c.event_location LIKE ?
-                        OR c.theme_motif LIKE ?
-                        OR c.preferred_package LIKE ?
-                    ORDER BY c.id DESC
+                        full_name LIKE ?
+                        OR contact_number LIKE ?
+                        OR notes LIKE ?
+                    ORDER BY id DESC
                     """,
                     (
-                        f"%{search_text}%",
-                        f"%{search_text}%",
                         f"%{search_text}%",
                         f"%{search_text}%",
                         f"%{search_text}%",
@@ -48,24 +42,61 @@ class ClientService:
                 rows = conn.execute(
                     """
                     SELECT 
-                        c.id,
-                        c.full_name,
-                        c.contact_number,
-                        et.name AS event_type,
-                        c.event_date,
-                        c.event_location,
-                        c.guest_count,
-                        c.theme_motif,
-                        c.preferred_package,
-                        bs.name AS status,
-                        c.notes,
-                        c.created_at
-                    FROM clients c
-                    LEFT JOIN event_types et ON c.event_type_id = et.id
-                    LEFT JOIN booking_statuses bs ON c.status_id = bs.id
-                    ORDER BY c.id DESC
+                        id,
+                        full_name,
+                        contact_number,
+                        notes,
+                        created_at
+                    FROM clients
+                    ORDER BY id DESC
                     """
                 ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def list_clients_available_for_booking(self, exclude_booking_id: int | None = None):
+        with self.db.get_conn() as conn:
+            cancelled_status = conn.execute(
+                """
+                SELECT id
+                FROM booking_statuses
+                WHERE LOWER(name) = 'cancelled'
+                LIMIT 1
+                """
+            ).fetchone()
+
+            cancelled_status_id = cancelled_status["id"] if cancelled_status else None
+
+            query = """
+                SELECT 
+                    c.id,
+                    c.full_name,
+                    c.contact_number,
+                    c.notes,
+                    c.created_at
+                FROM clients c
+                WHERE c.id NOT IN (
+                    SELECT b.client_id
+                    FROM bookings b
+                    WHERE b.client_id IS NOT NULL
+            """
+
+            params = []
+
+            if cancelled_status_id:
+                query += " AND b.status_id != ?"
+                params.append(cancelled_status_id)
+
+            if exclude_booking_id:
+                query += " AND b.id != ?"
+                params.append(exclude_booking_id)
+
+            query += """
+                )
+                ORDER BY c.full_name ASC
+            """
+
+            rows = conn.execute(query, params).fetchall()
 
         return [dict(row) for row in rows]
 
@@ -98,8 +129,7 @@ class ClientService:
     ):
         full_name = full_name.strip()
 
-        if not full_name:
-            raise ValueError("Client full name is required.")
+        self.validate_client_details(full_name)
 
         if guest_count is not None and guest_count < 0:
             raise ValueError("Guest count cannot be negative.")
@@ -168,8 +198,11 @@ class ClientService:
     ):
         full_name = full_name.strip()
 
-        if not full_name:
-            raise ValueError("Client full name is required.")
+        self.validate_client_details(
+            full_name,
+            event_date,
+            event_location
+        )
 
         if guest_count is not None and guest_count < 0:
             raise ValueError("Guest count cannot be negative.")
