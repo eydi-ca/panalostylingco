@@ -43,6 +43,14 @@ TABLE_BG = "#fbf7ef"
 TABLE_HEADER_BG = "#f1eadc"
 BORDER_SOFT = "#d8cbb6"
 
+SIDEBAR_SHADOW = "#ddd4c4"
+HEADING_FONT = ("Georgia", 22, "bold")
+SUBHEADING_FONT = ("Segoe UI", 11)
+SECTION_FONT = ("Segoe UI", 11, "bold")
+BODY_FONT = ("Segoe UI", 10)
+SMALL_FONT = ("Segoe UI", 9)
+SIDEBAR_FONT = ("Georgia", 13)
+
 TIME_OPTIONS = [
     "06:00 AM", "06:30 AM",
     "07:00 AM", "07:30 AM",
@@ -124,13 +132,51 @@ class PanaloApp(tk.Tk):
             "TLabel",
             background=APP_BG,
             foreground=TEXT_DARK,
-            font=("Segoe UI", 10)
+            font=BODY_FONT
+        )
+
+        style.configure(
+            "Header.TLabel",
+            background=APP_BG,
+            foreground=TEXT_DARK,
+            font=HEADING_FONT
+        )
+
+        style.configure(
+            "Subheader.TLabel",
+            background=APP_BG,
+            foreground=TEXT_MUTED,
+            font=SUBHEADING_FONT
+        )
+
+        style.configure(
+            "Section.TLabel",
+            background=APP_BG,
+            foreground=TEXT_DARK,
+            font=SECTION_FONT
         )
 
         style.configure(
             "TButton",
-            font=("Segoe UI", 9),
-            padding=(10, 5)
+            font=SMALL_FONT,
+            padding=(10, 5),
+            background="#f8f3e8",
+            foreground=TEXT_DARK,
+            bordercolor=BORDER_SOFT,
+            focusthickness=0,
+            focuscolor="#f8f3e8"
+        )
+
+        style.map(
+            "TButton",
+            background=[
+                ("active", "#efe8d8"),
+                ("pressed", "#e8e0ce")
+            ],
+            foreground=[
+                ("active", TEXT_DARK),
+                ("pressed", TEXT_DARK)
+            ]
         )
 
         style.configure(
@@ -138,6 +184,8 @@ class PanaloApp(tk.Tk):
             background=APP_BG,
             foreground=TEXT_DARK,
             bordercolor=BORDER_SOFT,
+            lightcolor=BORDER_SOFT,
+            darkcolor=BORDER_SOFT,
             relief="solid"
         )
 
@@ -145,18 +193,18 @@ class PanaloApp(tk.Tk):
             "TLabelframe.Label",
             background=APP_BG,
             foreground=ACCENT_OLIVE,
-            font=("Segoe UI", 10, "bold")
+            font=SECTION_FONT
         )
 
         style.configure(
             "Treeview",
-            background=TABLE_BG,
-            fieldbackground=TABLE_BG,
+            background=APP_BG,
+            fieldbackground=APP_BG,
             foreground=TEXT_DARK,
             rowheight=26,
-            bordercolor=BORDER_SOFT,
-            lightcolor=BORDER_SOFT,
-            darkcolor=BORDER_SOFT
+            borderwidth=1,
+            relief="solid",
+            font=BODY_FONT
         )
 
         style.configure(
@@ -164,7 +212,8 @@ class PanaloApp(tk.Tk):
             background=TABLE_HEADER_BG,
             foreground=TEXT_DARK,
             font=("Segoe UI", 9, "bold"),
-            relief="flat"
+            relief="flat",
+            borderwidth=0
         )
 
         style.map(
@@ -172,6 +221,7 @@ class PanaloApp(tk.Tk):
             background=[("selected", SIDEBAR_ACTIVE_BG)],
             foreground=[("selected", TEXT_DARK)]
         )
+
 
     def show_login_page(self):
         self.clear_container()
@@ -234,7 +284,8 @@ class LoginPage(tk.Frame):
         self.canvas = tk.Canvas(
             self,
             highlightthickness=0,
-            bd=0
+            bd=0,
+            bg="#f7f2e8"
         )
         self.canvas.pack(fill="both", expand=True)
 
@@ -242,9 +293,7 @@ class LoginPage(tk.Frame):
 
         self.card = tk.Frame(
             self.canvas,
-            bg="#fffdf7",
-            highlightbackground="#d8cbb6",
-            highlightthickness=1
+            bg="#fffdf7"
         )
 
         self.card_window = self.canvas.create_window(
@@ -647,10 +696,15 @@ class DashboardPage(ttk.Frame):
         self.app = app
 
         today = date.today()
-        first_day = today.replace(day=1)
+        first_day = date(today.year, today.month, 1)
+        last_day = date(
+            today.year,
+            today.month,
+            calendar.monthrange(today.year, today.month)[1]
+        )
 
         self.start_date_var = tk.StringVar(value=first_day.strftime("%Y-%m-%d"))
-        self.end_date_var = tk.StringVar(value=today.strftime("%Y-%m-%d"))
+        self.end_date_var = tk.StringVar(value=last_day.strftime("%Y-%m-%d"))
 
         self.build_ui()
         self.load_dashboard()
@@ -665,13 +719,13 @@ class DashboardPage(ttk.Frame):
         ttk.Label(
             left_header,
             text=f"Good day, {self.app.current_user.full_name}!",
-            font=("Segoe UI", 24, "bold")
+            style="Header.TLabel"
         ).pack(anchor="w")
 
         ttk.Label(
             left_header,
             text="Here’s what’s happening with Panalo Styling Co.",
-            font=("Segoe UI", 11)
+            style="Subheader.TLabel"
         ).pack(anchor="w", pady=(2, 0))
 
         ttk.Button(
@@ -742,10 +796,15 @@ class DashboardPage(ttk.Frame):
 
     def set_this_month(self):
         today = date.today()
-        first_day = today.replace(day=1)
+        first_day = date(today.year, today.month, 1)
+        last_day = date(
+            today.year,
+            today.month,
+            calendar.monthrange(today.year, today.month)[1]
+        )
 
         self.start_date_var.set(first_day.strftime("%Y-%m-%d"))
-        self.end_date_var.set(today.strftime("%Y-%m-%d"))
+        self.end_date_var.set(last_day.strftime("%Y-%m-%d"))
         self.load_dashboard()
 
     def set_this_year(self):
@@ -835,8 +894,16 @@ class DashboardPage(ttk.Frame):
         ).pack(side="left")
 
     def create_table(self, parent, columns, headings, widths=None, height=6):
-        table = ttk.Treeview(
+        table_container = tk.Frame(
             parent,
+            bg=APP_BG,
+            highlightthickness=0,
+            bd=0
+        )
+        table_container.pack(fill="both", expand=False)
+
+        table = ttk.Treeview(
+            table_container,
             columns=columns,
             show="headings",
             height=height
@@ -845,9 +912,15 @@ class DashboardPage(ttk.Frame):
         for index, column in enumerate(columns):
             table.heading(column, text=headings[index])
             width = widths[index] if widths else 120
-            table.column(column, width=width)
+            table.column(column, width=width, anchor="w")
 
-        table.pack(fill="both", expand=True)
+        table.tag_configure(
+            "normal",
+            background=APP_BG,
+            foreground=TEXT_DARK
+        )
+
+        table.pack(fill="x", expand=False)
 
         return table
 
@@ -1215,6 +1288,7 @@ class DashboardPage(ttk.Frame):
                     item["event_type"] or "",
                     item["status"] or ""
                 )
+
             )
 
         recent_table = self.create_table(
@@ -1258,7 +1332,7 @@ class DashboardPage(ttk.Frame):
             )
 
         bottom_row = ttk.Frame(self.content)
-        bottom_row.pack(fill="both", expand=True, pady=(6, 0))
+        bottom_row.pack(fill="x", expand=False, pady=(6, 0))
 
         package_box = ttk.LabelFrame(bottom_row, text="Packages at a Glance", padding=10)
         package_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
@@ -1271,7 +1345,7 @@ class DashboardPage(ttk.Frame):
             columns=("package", "bookings", "revenue"),
             headings=("Package", "Bookings", "Revenue"),
             widths=(260, 80, 120),
-            height=5
+            height=4
         )
 
         for item in data["package_performance"]:
@@ -1290,7 +1364,7 @@ class DashboardPage(ttk.Frame):
             columns=("date", "time", "client", "status"),
             headings=("Date", "Time", "Client", "Status"),
             widths=(90, 80, 180, 100),
-            height=5
+            height=4
         )
 
         for item in data["upcoming_events"]:
@@ -1302,7 +1376,8 @@ class DashboardPage(ttk.Frame):
                     item["event_time"] or "",
                     item["client_name"] or "",
                     item["status"] or ""
-                )
+                ),
+                tags=("normal",)
             )
 
 class MainSystemPage(tk.Frame):
@@ -1330,6 +1405,41 @@ class MainSystemPage(tk.Frame):
 
         self.load_images()
         self.build_ui()
+
+    def create_top_collapse_button(self, y):
+        sidebar_width = self.SIDEBAR_COLLAPSED_WIDTH if self.sidebar_collapsed else self.SIDEBAR_WIDTH
+
+        button_frame = tk.Frame(
+            self.sidebar_canvas,
+            bg=SIDEBAR_BG,
+            bd=0,
+            highlightthickness=0
+        )
+
+        collapse_button = tk.Button(
+            button_frame,
+            text="\uE76B" if not self.sidebar_collapsed else "\uE76C",
+            command=self.toggle_sidebar,
+            bg="#efecd8",
+            fg=ACCENT_OLIVE,
+            activebackground="#e4e1ca",
+            activeforeground=ACCENT_OLIVE,
+            bd=0,
+            cursor="hand2",
+            font=("Segoe MDL2 Assets", 11),
+            width=4
+        )
+        collapse_button.pack(side="right", padx=(0, 10), pady=6)
+
+        self.sidebar_canvas.create_window(
+            sidebar_width - 8,
+            y,
+            window=button_frame,
+            anchor="ne",
+            width=60,
+            height=42,
+            tags="nav"
+        )
 
     def load_images(self):
         self.sidebar_bg_original = None
@@ -1376,8 +1486,15 @@ class MainSystemPage(tk.Frame):
     def build_ui(self):
         self.configure(bg=APP_BG)
 
+        shell = tk.Frame(self, bg=APP_BG)
+        shell.pack(fill="both", expand=True)
+
+        self.sidebar_wrap = tk.Frame(shell, bg=SIDEBAR_SHADOW, width=self.SIDEBAR_WIDTH + 4)
+        self.sidebar_wrap.pack(side="left", fill="y")
+        self.sidebar_wrap.pack_propagate(False)
+
         self.sidebar_canvas = tk.Canvas(
-            self,
+            self.sidebar_wrap,
             width=self.SIDEBAR_WIDTH,
             highlightthickness=0,
             bd=0,
@@ -1386,8 +1503,11 @@ class MainSystemPage(tk.Frame):
         self.sidebar_canvas.pack(side="left", fill="y")
         self.sidebar_canvas.pack_propagate(False)
 
+        self.shadow_line = tk.Frame(self.sidebar_wrap, bg=SIDEBAR_SHADOW, width=4)
+        self.shadow_line.pack(side="right", fill="y")
+
         self.main_canvas = tk.Canvas(
-            self,
+            shell,
             highlightthickness=0,
             bd=0,
             bg=APP_BG
@@ -1429,13 +1549,13 @@ class MainSystemPage(tk.Frame):
             {
                 "module": "Bookings",
                 "label": "Bookings",
-                "icon": "\uE8A5",
+                "icon": "\uE8FD",
                 "subtitle": ""
             },
             {
                 "module": "Packages",
                 "label": "Packages",
-                "icon": "\uE7BF",
+                "icon": "\uE8B7",
                 "subtitle": ""
             },
             {
@@ -1504,15 +1624,22 @@ class MainSystemPage(tk.Frame):
         self.nav_widgets.clear()
 
         sidebar_width = self.SIDEBAR_COLLAPSED_WIDTH if self.sidebar_collapsed else self.SIDEBAR_WIDTH
+
         self.sidebar_canvas.config(width=sidebar_width)
 
-        y = 28
+        if hasattr(self, "sidebar_wrap"):
+            self.sidebar_wrap.config(width=sidebar_width + 4)
+
+        y = 18
+
+        self.create_top_collapse_button(y)
+        y += 48
 
         if not self.sidebar_collapsed:
             self.draw_logo(y)
-            y += 230
+            y += 220
         else:
-            y += 18
+            y += 8
 
         for item in self.get_nav_items():
             if not self.can_access_module(item["module"]):
@@ -1593,7 +1720,9 @@ class MainSystemPage(tk.Frame):
         button_frame = tk.Frame(
             self.sidebar_canvas,
             bg=bg_color,
-            cursor="hand2"
+            cursor="hand2",
+            highlightthickness=0,
+            bd=0
         )
 
         button_frame.bind(
@@ -1608,7 +1737,9 @@ class MainSystemPage(tk.Frame):
             fg=icon_color,
             font=("Segoe MDL2 Assets", 16),
             width=3,
-            cursor="hand2"
+            cursor="hand2",
+            bd = 0,
+            highlightthickness = 0
         )
         icon_label.pack(side="left", padx=(13, 8), pady=8)
         icon_label.bind(
@@ -1627,7 +1758,9 @@ class MainSystemPage(tk.Frame):
                 fg=text_color,
                 font=("Georgia", 13),
                 anchor="w",
-                cursor="hand2"
+                cursor="hand2",
+                bd = 0,
+                highlightthickness = 0
             )
             label_widget.pack(anchor="w")
 
@@ -1672,7 +1805,7 @@ class MainSystemPage(tk.Frame):
         if canvas_height <= 1:
             return
 
-        footer_height = 98
+        footer_height = 58
         footer_y = canvas_height - footer_height
 
         footer_frame = tk.Frame(
@@ -1692,37 +1825,7 @@ class MainSystemPage(tk.Frame):
             cursor="hand2",
             font=("Segoe UI", 10, "bold")
         )
-        logout_button.pack(fill="x", padx=12, pady=(8, 6), ipady=6)
-
-        collapse_row = tk.Frame(
-            footer_frame,
-            bg=SIDEBAR_BG
-        )
-        collapse_row.pack(fill="x", padx=12, pady=(2, 8))
-
-        collapse_button = tk.Button(
-            collapse_row,
-            text="\uE76B" if not self.sidebar_collapsed else "\uE76C",
-            command=self.toggle_sidebar,
-            bg="#efecd8",
-            fg=ACCENT_OLIVE,
-            activebackground="#e4e1ca",
-            activeforeground=ACCENT_OLIVE,
-            bd=0,
-            cursor="hand2",
-            font=("Segoe MDL2 Assets", 11),
-            width=4
-        )
-        collapse_button.pack(side="left")
-
-        if not self.sidebar_collapsed:
-            tk.Label(
-                collapse_row,
-                text="Collapse",
-                bg=SIDEBAR_BG,
-                fg=TEXT_DARK,
-                font=("Segoe UI", 9)
-            ).pack(side="left", padx=(8, 0))
+        logout_button.pack(fill="both", expand=True, padx=12, pady=8)
 
         self.sidebar_canvas.create_window(
             0,
@@ -1736,8 +1839,12 @@ class MainSystemPage(tk.Frame):
 
     def toggle_sidebar(self):
         self.sidebar_collapsed = not self.sidebar_collapsed
+
         self.build_sidebar()
         self.redraw_sidebar_background()
+
+        self.update_idletasks()
+        self.redraw_main_background()
 
     def redraw_sidebar_background(self, event=None):
         width = self.sidebar_canvas.winfo_width()
@@ -1752,6 +1859,7 @@ class MainSystemPage(tk.Frame):
             height,
             fill=SIDEBAR_BG,
             outline="",
+            width=0,
             tags="sidebar_bg"
         )
 
@@ -1773,6 +1881,7 @@ class MainSystemPage(tk.Frame):
             height,
             fill=APP_BG,
             outline="",
+            width=0,
             tags="main_bg"
         )
 
@@ -1867,7 +1976,7 @@ class UserManagementPage(ttk.Frame):
         ttk.Label(
             header,
             text="User Management",
-            font=("Segoe UI", 24, "bold")
+            style="Header.TLabel"
         ).pack(side="left")
 
         ttk.Button(
@@ -2238,7 +2347,7 @@ class ClientsPage(ttk.Frame):
         ttk.Label(
             header,
             text="Clients",
-            font=("Segoe UI", 24, "bold")
+            style="Header.TLabel"
         ).pack(side="left")
 
         ttk.Button(
@@ -2292,11 +2401,17 @@ class ClientsPage(ttk.Frame):
         self.table.heading("notes", text="Notes")
         self.table.heading("created_at", text="Created At")
 
-        self.table.column("id", width=50)
+        self.table.column("id", width=50, anchor="center")
         self.table.column("full_name", width=220)
         self.table.column("contact_number", width=140)
         self.table.column("notes", width=350)
         self.table.column("created_at", width=150)
+
+        self.table.tag_configure(
+            "normal",
+            background=APP_BG,
+            foreground=TEXT_DARK
+        )
 
         self.table.pack(fill="both", expand=True)
 
@@ -2315,7 +2430,7 @@ class ClientsPage(ttk.Frame):
             command=self.load_clients
         ).pack(side="right")
 
-        self.bind_all("<Return>", lambda event: self.search_clients())
+        search_entry.bind("<Return>", lambda event: self.search_clients())
 
     def load_clients(self):
         for item in self.table.get_children():
@@ -2333,7 +2448,8 @@ class ClientsPage(ttk.Frame):
                     client["contact_number"] or "",
                     client["notes"] or "",
                     client["created_at"] or ""
-                )
+                ),
+                tags=("normal",)
             )
 
     def search_clients(self):
@@ -2354,7 +2470,8 @@ class ClientsPage(ttk.Frame):
                     client["contact_number"] or "",
                     client["notes"] or "",
                     client["created_at"] or ""
-                )
+                ),
+                tags=("normal",)
             )
 
     def clear_search(self):
@@ -2398,6 +2515,7 @@ class ClientsPage(ttk.Frame):
             mode="edit",
             client=client
         )
+
 
 class DatePickerWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, target_var: tk.StringVar, initial_date=None, exclude_booking_id=None):
@@ -4136,7 +4254,7 @@ class SchedulePage(ttk.Frame):
         ttk.Label(
             right,
             text="Actions",
-            font=("Segoe UI", 14, "bold")
+            style="Section.TLabel"
         ).pack(anchor="w", pady=(0, 10))
 
         ttk.Button(
@@ -4435,13 +4553,13 @@ class ScheduleRescheduleWindow(tk.Toplevel):
         ttk.Label(
             frame,
             text="Reschedule Booking",
-            font=("Segoe UI", 18, "bold")
+            style="Section.TLabel"
         ).pack(anchor="w", pady=(0, 10))
 
         ttk.Label(
             frame,
             text=f"Client: {self.schedule['client_name'] or ''}",
-            font=("Segoe UI", 10)
+            style="Section.TLabel"
         ).pack(anchor="w", pady=(0, 15))
 
         ttk.Label(frame, text="New Event Date").pack(anchor="w")
@@ -4539,7 +4657,7 @@ class PaymentPage(ttk.Frame):
         ttk.Label(
             header,
             text="Payment",
-            font=("Segoe UI", 24, "bold")
+            style="Section.TLabel"
         ).pack(side="left")
 
         ttk.Button(
@@ -4735,7 +4853,8 @@ class PaymentPage(ttk.Frame):
                     payment["reference_number"] or "",
                     payment["payment_date"] or "",
                     payment["verification_status"]
-                )
+                ),
+                tags=("normal",)
             )
 
     def handle_booking_selection(self, event=None):
@@ -5606,7 +5725,7 @@ class ReportsPage(ttk.Frame):
         ttk.Label(
             self.packages_tab,
             text="Package Performance",
-            font=("Segoe UI", 14, "bold")
+            style="Section.TLabel"
         ).pack(anchor="w", pady=(0, 10))
 
         table = self.create_table(
@@ -5884,7 +6003,7 @@ class SettingsPage(ttk.Frame):
         ttk.Label(
             top_bar,
             text="Manage booking status options used in bookings and reports.",
-            font=("Segoe UI", 10)
+            style="Section.TLabel"
         ).pack(side="left")
 
         ttk.Button(
