@@ -1,6 +1,9 @@
 import json
 import tkinter as tk
 import calendar
+import os
+import json
+from PIL import Image, ImageTk
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk, messagebox
@@ -14,6 +17,13 @@ from package_service import PackageService
 from booking_service import BookingService
 from schedule_service import ScheduleService
 from payment_service import PaymentService
+from reports_service import ReportsService
+
+ASSETS_DIR = "assets"
+IMAGES_DIR = os.path.join(ASSETS_DIR, "images")
+LOGIN_BACKGROUND_PATH = os.path.join(IMAGES_DIR, "login_background.png")
+APP_ICON_PATH = os.path.join(IMAGES_DIR, "app_icon.png")
+REMEMBER_ME_PATH = os.path.join("data", "remember_me.json")
 
 TIME_OPTIONS = [
     "06:00 AM", "06:30 AM",
@@ -42,6 +52,8 @@ class PanaloApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
+        self.set_window_icon()
+
         self.title(APP_NAME)
         self.geometry("1100x700")
         self.minsize(950, 600)
@@ -54,6 +66,7 @@ class PanaloApp(tk.Tk):
         self.booking_service = BookingService(self.db)
         self.schedule_service = ScheduleService(self.db)
         self.payment_service = PaymentService(self.db)
+        self.reports_service = ReportsService(self.db)
         self.current_user: SessionUser | None = None
 
         self.container = ttk.Frame(self)
@@ -61,12 +74,31 @@ class PanaloApp(tk.Tk):
 
         self.show_login_page()
 
+    def set_window_icon(self):
+        try:
+            if os.path.exists(APP_ICON_PATH):
+                icon_image = tk.PhotoImage(file=APP_ICON_PATH)
+                self.iconphoto(True, icon_image)
+                self.app_icon_image = icon_image  # keep reference so Tkinter does not remove it
+        except Exception:
+            pass
+
     def clear_container(self):
         for widget in self.container.winfo_children():
             widget.destroy()
 
     def show_login_page(self):
         self.clear_container()
+
+        try:
+            self.state("normal")
+        except tk.TclError:
+            self.attributes("-fullscreen", False)
+
+        self.geometry("1100x680")
+        self.minsize(1000, 620)
+        self.resizable(True, True)
+
         LoginPage(self.container, self).pack(fill="both", expand=True)
 
     def show_main_system(self, user: SessionUser):
@@ -85,154 +117,1105 @@ class PanaloApp(tk.Tk):
         self.show_login_page()
 
 
-class LoginPage(ttk.Frame):
+class LoginPage(tk.Frame):
     def __init__(self, parent, app: PanaloApp):
         super().__init__(parent)
+
         self.app = app
 
         self.username_var = tk.StringVar()
         self.password_var = tk.StringVar()
         self.remember_var = tk.BooleanVar(value=False)
-        self.password_visible = False
+        self.show_password_var = tk.BooleanVar(value=False)
 
-        self.load_remembered_email()
+        self.bg_original = None
+        self.bg_photo = None
+
+        self.configure(bg="#f7f2e8")
+
+        self.load_remembered_login()
+        self.load_background_image()
         self.build_ui()
 
-    def load_remembered_email(self):
+    def load_background_image(self):
         try:
-            if REMEMBER_FILE.exists():
-                with open(REMEMBER_FILE, "r", encoding="utf-8") as file:
-                    data = json.load(file)
-                    self.username_var.set(data.get("username", ""))
-                    self.remember_var.set(bool(data.get("remember", False)))
+            if os.path.exists(LOGIN_BACKGROUND_PATH):
+                self.bg_original = Image.open(LOGIN_BACKGROUND_PATH)
         except Exception:
-            pass
-
-    def save_remembered_email(self):
-        REMEMBER_FILE.parent.mkdir(exist_ok=True)
-
-        if self.remember_var.get():
-            with open(REMEMBER_FILE, "w", encoding="utf-8") as file:
-                json.dump(
-                    {
-                        "username": self.username_var.get().strip(),
-                        "remember": True
-                    },
-                    file,
-                    indent=4
-                )
-        else:
-            if REMEMBER_FILE.exists():
-                REMEMBER_FILE.unlink()
+            self.bg_original = None
 
     def build_ui(self):
-        wrapper = ttk.Frame(self, padding=30)
-        wrapper.pack(expand=True)
+        self.canvas = tk.Canvas(
+            self,
+            highlightthickness=0,
+            bd=0
+        )
+        self.canvas.pack(fill="both", expand=True)
 
-        ttk.Label(
-            wrapper,
-            text="PanaloStylingCo",
-            font=("Segoe UI", 28, "bold")
-        ).pack(pady=(0, 5))
+        self.canvas.bind("<Configure>", self.redraw_background)
 
-        ttk.Label(
-            wrapper,
-            text="Admin Login",
+        self.card = tk.Frame(
+            self.canvas,
+            bg="#fffdf7",
+            highlightbackground="#d8cbb6",
+            highlightthickness=1
+        )
+
+        self.card_window = self.canvas.create_window(
+            0,
+            0,
+            window=self.card,
+            anchor="center"
+        )
+
+        self.build_login_card()
+
+    def build_login_card(self):
+        for widget in self.card.winfo_children():
+            widget.destroy()
+
+        inner = tk.Frame(self.card, bg="#fffdf7")
+        inner.pack(fill="both", expand=True, padx=46, pady=32)
+
+        tk.Label(
+            inner,
+            text="❧",
+            bg="#fffdf7",
+            fg="#7c7f3f",
+            font=("Georgia", 22)
+        ).pack(pady=(0, 4))
+
+        tk.Label(
+            inner,
+            text="Welcome Back!",
+            bg="#fffdf7",
+            fg="#4f5f2f",
+            font=("Georgia", 25, "bold")
+        ).pack()
+
+        tk.Label(
+            inner,
+            text="Sign in to your Panalo Styling Co.\nAdmin Account",
+            bg="#fffdf7",
+            fg="#555555",
+            font=("Segoe UI", 11),
+            justify="center"
+        ).pack(pady=(8, 26))
+
+        tk.Label(
+            inner,
+            text="Username / Email Address",
+            bg="#fffdf7",
+            fg="#333333",
+            font=("Segoe UI", 10, "bold")
+        ).pack(anchor="w")
+
+        username_box = tk.Frame(
+            inner,
+            bg="white",
+            highlightbackground="#d8cbb6",
+            highlightthickness=1
+        )
+        username_box.pack(fill="x", pady=(6, 18), ipady=3)
+
+        tk.Label(
+            username_box,
+            text="👤",
+            bg="white",
+            fg="#7c7f3f",
             font=("Segoe UI", 12)
-        ).pack(pady=(0, 25))
+        ).pack(side="left", padx=(14, 8), pady=8)
 
-        card = ttk.Frame(wrapper, padding=25, relief="ridge")
-        card.pack(fill="x")
+        self.username_entry = tk.Entry(
+            username_box,
+            textvariable=self.username_var,
+            bd=0,
+            bg="white",
+            fg="#333333",
+            insertbackground="#333333",
+            font=("Segoe UI", 11)
+        )
+        self.username_entry.pack(side="left", fill="x", expand=True, pady=10, padx=(0, 12))
 
-        ttk.Label(
-            card,
-            text="Login",
-            font=("Segoe UI", 18, "bold")
-        ).pack(anchor="w", pady=(0, 15))
-
-        ttk.Label(card, text="Username").pack(anchor="w")
-        username_entry = ttk.Entry(card, textvariable=self.username_var, width=42)
-        username_entry.pack(fill="x", pady=(3, 12))
-
-        ttk.Label(card, text="Password").pack(anchor="w")
+        tk.Label(
+            inner,
+            text="Password",
+            bg="#fffdf7",
+            fg="#333333",
+            font=("Segoe UI", 10, "bold")
+        ).pack(anchor="w")
 
         password_box = tk.Frame(
-            card,
-            bd=1,
-            relief="solid",
-            bg="white"
+            inner,
+            bg="white",
+            highlightbackground="#d8cbb6",
+            highlightthickness=1
         )
-        password_box.pack(fill="x", pady=(3, 12))
+        password_box.pack(fill="x", pady=(6, 14), ipady=3)
+
+        tk.Label(
+            password_box,
+            text="🔒",
+            bg="white",
+            fg="#7c7f3f",
+            font=("Segoe UI", 12)
+        ).pack(side="left", padx=(14, 8), pady=8)
 
         self.password_entry = tk.Entry(
             password_box,
             textvariable=self.password_var,
-            show="*",
-            relief="flat",
-            bg="white"
+            bd=0,
+            bg="white",
+            fg="#333333",
+            insertbackground="#333333",
+            show="*" if not self.show_password_var.get() else "",
+            font=("Segoe UI", 11)
         )
-        self.password_entry.pack(side="left", fill="x", expand=True, padx=(6, 2), pady=5)
+        self.password_entry.pack(side="left", fill="x", expand=True, pady=10)
 
         self.eye_button = tk.Button(
             password_box,
             text="👁",
+            command=self.toggle_password_visibility,
             bd=0,
             bg="white",
+            fg="#5b5f35",
             activebackground="white",
-            command=self.toggle_password
+            cursor="hand2",
+            font=("Segoe UI", 10)
         )
-        self.eye_button.pack(side="right", padx=(2, 6))
+        self.eye_button.pack(side="right", padx=(8, 14))
 
-        ttk.Checkbutton(
-            card,
+        options_row = tk.Frame(inner, bg="#fffdf7")
+        options_row.pack(fill="x", pady=(0, 22))
+
+        tk.Checkbutton(
+            options_row,
             text="Remember me",
-            variable=self.remember_var
-        ).pack(anchor="w", pady=(0, 15))
+            variable=self.remember_var,
+            bg="#fffdf7",
+            fg="#444444",
+            activebackground="#fffdf7",
+            selectcolor="#fffdf7",
+            font=("Segoe UI", 10)
+        ).pack(side="left")
 
-        ttk.Button(
-            card,
+        login_button = tk.Button(
+            inner,
             text="Login",
-            command=self.handle_login
-        ).pack(fill="x")
+            command=self.handle_login,
+            bg="#6f742e",
+            fg="white",
+            activebackground="#5f6427",
+            activeforeground="white",
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI", 13, "bold"),
+            height=2
+        )
+        login_button.pack(fill="x", pady=(2, 14))
 
-        ttk.Label(
-            wrapper,
-            text="Default admin: admin / Panalo@2026",
+        tk.Label(
+            inner,
+            text="Need help? Contact System Administrator",
+            bg="#fffdf7",
+            fg="#777777",
             font=("Segoe UI", 9)
-        ).pack(pady=(15, 0))
+        ).pack(pady=(8, 0))
 
-        username_entry.focus_set()
-        self.bind_all("<Return>", lambda event: self.handle_login())
+        self.username_entry.focus_set()
+        self.bind_enter_key()
 
-    def toggle_password(self):
-        self.password_visible = not self.password_visible
+    def bind_enter_key(self):
+        self.username_entry.bind("<Return>", lambda event: self.handle_login())
+        self.password_entry.bind("<Return>", lambda event: self.handle_login())
 
-        if self.password_visible:
+    def resize_image_cover(self, image, target_width, target_height):
+        image_width, image_height = image.size
+
+        image_ratio = image_width / image_height
+        target_ratio = target_width / target_height
+
+        if image_ratio > target_ratio:
+            new_height = target_height
+            new_width = int(target_height * image_ratio)
+        else:
+            new_width = target_width
+            new_height = int(target_width / image_ratio)
+
+        resized = image.resize((new_width, new_height), Image.LANCZOS)
+
+        left = (new_width - target_width) // 2
+        top = (new_height - target_height) // 2
+        right = left + target_width
+        bottom = top + target_height
+
+        return resized.crop((left, top, right, bottom))
+
+    def create_round_rectangle(self, canvas, x1, y1, x2, y2, radius=25, **kwargs):
+        points = [
+            x1 + radius, y1,
+            x2 - radius, y1,
+            x2, y1,
+            x2, y1 + radius,
+            x2, y2 - radius,
+            x2, y2,
+            x2 - radius, y2,
+            x1 + radius, y2,
+            x1, y2,
+            x1, y2 - radius,
+            x1, y1 + radius,
+            x1, y1,
+        ]
+
+        return canvas.create_polygon(
+            points,
+            smooth=True,
+            **kwargs
+        )
+
+    def redraw_background(self, event=None):
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+
+        self.canvas.delete("background")
+        self.canvas.delete("card_shape")
+
+        if self.bg_original:
+            fitted = self.resize_image_cover(
+                self.bg_original,
+                width,
+                height
+            )
+
+            self.bg_photo = ImageTk.PhotoImage(fitted)
+
+            self.canvas.create_image(
+                0,
+                0,
+                image=self.bg_photo,
+                anchor="nw",
+                tags="background"
+            )
+        else:
+            self.canvas.create_rectangle(
+                0,
+                0,
+                width,
+                height,
+                fill="#f7f2e8",
+                outline="",
+                tags="background"
+            )
+
+        card_width = 500
+        card_height = 610
+
+        x_position = int(width * 0.72)
+        y_position = int(height * 0.50)
+
+        if width < 1000:
+            x_position = width // 2
+
+        x1 = x_position - card_width // 2
+        y1 = y_position - card_height // 2
+        x2 = x_position + card_width // 2
+        y2 = y_position + card_height // 2
+
+        # Soft shadow
+        self.create_round_rectangle(
+            self.canvas,
+            x1 + 8,
+            y1 + 10,
+            x2 + 8,
+            y2 + 10,
+            radius=24,
+            fill="#000000",
+            outline="",
+            stipple="gray25",
+            tags="card_shape"
+        )
+
+        # Rounded card background
+        self.create_round_rectangle(
+            self.canvas,
+            x1,
+            y1,
+            x2,
+            y2,
+            radius=24,
+            fill="#fffdf7",
+            outline="#d8cbb6",
+            tags="card_shape"
+        )
+
+        self.canvas.itemconfigure(
+            self.card_window,
+            width=card_width - 34,
+            height=card_height - 34
+        )
+
+        self.canvas.coords(
+            self.card_window,
+            x_position,
+            y_position
+        )
+
+        self.canvas.tag_lower("card_shape", self.card_window)
+        self.canvas.tag_lower("background")
+
+    def toggle_password_visibility(self):
+        self.show_password_var.set(not self.show_password_var.get())
+
+        if self.show_password_var.get():
             self.password_entry.config(show="")
-            self.eye_button.config(text="🙈")
         else:
             self.password_entry.config(show="*")
-            self.eye_button.config(text="👁")
+
+    def load_remembered_login(self):
+        try:
+            if not os.path.exists(REMEMBER_ME_PATH):
+                return
+
+            with open(REMEMBER_ME_PATH, "r", encoding="utf-8") as file:
+                data = json.load(file)
+
+            if data.get("remember"):
+                self.username_var.set(data.get("username", ""))
+                self.password_var.set(data.get("password", ""))
+                self.remember_var.set(True)
+
+        except Exception:
+            self.username_var.set("")
+            self.password_var.set("")
+            self.remember_var.set(False)
+
+    def save_remembered_login(self):
+        os.makedirs("data", exist_ok=True)
+
+        if self.remember_var.get():
+            data = {
+                "remember": True,
+                "username": self.username_var.get().strip(),
+                "password": self.password_var.get()
+            }
+        else:
+            data = {
+                "remember": False,
+                "username": "",
+                "password": ""
+            }
+
+        with open(REMEMBER_ME_PATH, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+
+    def authenticate_user(self, username, password):
+        auth = self.app.auth_service
+
+        if hasattr(auth, "login"):
+            return auth.login(username, password)
+
+        if hasattr(auth, "authenticate"):
+            return auth.authenticate(username, password)
+
+        if hasattr(auth, "authenticate_user"):
+            return auth.authenticate_user(username, password)
+
+        raise ValueError("No login method found in AuthService.")
 
     def handle_login(self):
+        username = self.username_var.get().strip()
+        password = self.password_var.get()
+
+        if not username:
+            messagebox.showerror("Login Failed", "Please enter your username or email.")
+            return
+
+        if not password:
+            messagebox.showerror("Login Failed", "Please enter your password.")
+            return
+
         try:
-            user = self.app.auth_service.login(
-                self.username_var.get(),
-                self.password_var.get()
-            )
+            user = self.authenticate_user(username, password)
 
-            self.save_remembered_email()
-
-            messagebox.showinfo(
-                "Login Successful",
-                f"Welcome, {user.full_name}!"
-            )
-
-            self.app.show_main_system(user)
+            if not user:
+                messagebox.showerror("Login Failed", "Invalid username or password.")
+                return
 
         except ValueError as e:
             messagebox.showerror("Login Failed", str(e))
+            return
 
+        except Exception as e:
+            messagebox.showerror("Login Failed", f"Unable to login: {e}")
+            return
+
+        self.save_remembered_login()
+        self.app.show_main_system(user)
+
+
+class DashboardPage(ttk.Frame):
+    def __init__(self, parent, app: PanaloApp):
+        super().__init__(parent)
+
+        self.app = app
+
+        today = date.today()
+        first_day = today.replace(day=1)
+
+        self.start_date_var = tk.StringVar(value=first_day.strftime("%Y-%m-%d"))
+        self.end_date_var = tk.StringVar(value=today.strftime("%Y-%m-%d"))
+
+        self.build_ui()
+        self.load_dashboard()
+
+    def build_ui(self):
+        header = ttk.Frame(self)
+        header.pack(fill="x", pady=(0, 12))
+
+        left_header = ttk.Frame(header)
+        left_header.pack(side="left", fill="x", expand=True)
+
+        ttk.Label(
+            left_header,
+            text=f"Good day, {self.app.current_user.full_name}!",
+            font=("Segoe UI", 24, "bold")
+        ).pack(anchor="w")
+
+        ttk.Label(
+            left_header,
+            text="Here’s what’s happening with Panalo Styling Co.",
+            font=("Segoe UI", 11)
+        ).pack(anchor="w", pady=(2, 0))
+
+        ttk.Button(
+            header,
+            text="Refresh",
+            command=self.load_dashboard
+        ).pack(side="right")
+
+        filter_bar = ttk.Frame(self)
+        filter_bar.pack(fill="x", pady=(0, 12))
+
+        ttk.Label(filter_bar, text="From").pack(side="left")
+
+        ttk.Entry(
+            filter_bar,
+            textvariable=self.start_date_var,
+            width=14,
+            state="readonly"
+        ).pack(side="left", padx=(6, 4))
+
+        ttk.Button(
+            filter_bar,
+            text="Select",
+            command=lambda: self.open_simple_date_picker(self.start_date_var)
+        ).pack(side="left", padx=(0, 10))
+
+        ttk.Label(filter_bar, text="To").pack(side="left")
+
+        ttk.Entry(
+            filter_bar,
+            textvariable=self.end_date_var,
+            width=14,
+            state="readonly"
+        ).pack(side="left", padx=(6, 4))
+
+        ttk.Button(
+            filter_bar,
+            text="Select",
+            command=lambda: self.open_simple_date_picker(self.end_date_var)
+        ).pack(side="left", padx=(0, 10))
+
+        ttk.Button(
+            filter_bar,
+            text="Apply Filter",
+            command=self.load_dashboard
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            filter_bar,
+            text="This Month",
+            command=self.set_this_month
+        ).pack(side="right", padx=(6, 0))
+
+        ttk.Button(
+            filter_bar,
+            text="This Year",
+            command=self.set_this_year
+        ).pack(side="right", padx=(6, 0))
+
+        self.content = ttk.Frame(self)
+        self.content.pack(fill="both", expand=True)
+
+    def open_simple_date_picker(self, target_var):
+        SimpleDatePickerWindow(
+            target_var=target_var,
+            initial_date=target_var.get()
+        )
+
+    def set_this_month(self):
+        today = date.today()
+        first_day = today.replace(day=1)
+
+        self.start_date_var.set(first_day.strftime("%Y-%m-%d"))
+        self.end_date_var.set(today.strftime("%Y-%m-%d"))
+        self.load_dashboard()
+
+    def set_this_year(self):
+        today = date.today()
+        first_day = date(today.year, 1, 1)
+
+        self.start_date_var.set(first_day.strftime("%Y-%m-%d"))
+        self.end_date_var.set(today.strftime("%Y-%m-%d"))
+        self.load_dashboard()
+
+    def clear_dashboard(self):
+        for widget in self.content.winfo_children():
+            widget.destroy()
+
+    def format_price(self, value):
+        try:
+            return f"₱{float(value or 0):,.2f}"
+        except Exception:
+            return "₱0.00"
+
+    def format_progress(self, value):
+        value = float(value or 0)
+
+        if value > 0:
+            return f"▲ {value:.1f}%"
+        if value < 0:
+            return f"▼ {abs(value):.1f}%"
+        return "— 0.0%"
+
+    def get_progress_color(self, value):
+        value = float(value or 0)
+
+        if value > 0:
+            return "#198754"
+
+        if value < 0:
+            return "#dc3545"
+
+        return "#6c757d"
+
+    def create_metric_card(self, parent, title, value, progress_value, subtitle="vs previous period"):
+        card = tk.Frame(
+            parent,
+            bg="white",
+            relief="solid",
+            bd=1,
+            height=105
+        )
+        card.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        card.pack_propagate(False)
+
+        tk.Label(
+            card,
+            text=title,
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+
+        tk.Label(
+            card,
+            text=value,
+            bg="white",
+            fg="#111111",
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", padx=12)
+
+        progress_frame = tk.Frame(card, bg="white")
+        progress_frame.pack(anchor="w", padx=12, pady=(5, 0))
+
+        tk.Label(
+            progress_frame,
+            text=self.format_progress(progress_value),
+            bg="white",
+            fg=self.get_progress_color(progress_value),
+            font=("Segoe UI", 9, "bold")
+        ).pack(side="left")
+
+        tk.Label(
+            progress_frame,
+            text=f" {subtitle}",
+            bg="white",
+            fg="#777777",
+            font=("Segoe UI", 8)
+        ).pack(side="left")
+
+    def create_table(self, parent, columns, headings, widths=None, height=6):
+        table = ttk.Treeview(
+            parent,
+            columns=columns,
+            show="headings",
+            height=height
+        )
+
+        for index, column in enumerate(columns):
+            table.heading(column, text=headings[index])
+            width = widths[index] if widths else 120
+            table.column(column, width=width)
+
+        table.pack(fill="both", expand=True)
+
+        return table
+
+    def draw_line_graph(self, parent, line_data, title, value_key, label_key):
+        canvas = tk.Canvas(
+            parent,
+            bg="white",
+            height=220,
+            highlightthickness=1,
+            highlightbackground="#dddddd"
+        )
+        canvas.pack(fill="both", expand=True)
+
+        def redraw(event=None):
+            canvas.delete("all")
+
+            width = canvas.winfo_width()
+            height = canvas.winfo_height()
+
+            padding_left = 45
+            padding_right = 20
+            padding_top = 30
+            padding_bottom = 42
+
+            chart_width = width - padding_left - padding_right
+            chart_height = height - padding_top - padding_bottom
+
+            canvas.create_text(
+                12,
+                12,
+                text=title,
+                anchor="w",
+                font=("Segoe UI", 11, "bold")
+            )
+
+            if not line_data:
+                canvas.create_text(
+                    width / 2,
+                    height / 2,
+                    text="No data for selected range",
+                    fill="#777777",
+                    font=("Segoe UI", 11)
+                )
+                return
+
+            values = [float(item[value_key] or 0) for item in line_data]
+            labels = [item[label_key] for item in line_data]
+
+            max_value = max(values)
+
+            if max_value <= 0:
+                max_value = 1
+
+            x0 = padding_left
+            y0 = height - padding_bottom
+            x1 = width - padding_right
+            y1 = padding_top
+
+            canvas.create_line(x0, y0, x1, y0, fill="#999999")
+            canvas.create_line(x0, y0, x0, y1, fill="#999999")
+
+            for i in range(5):
+                y = y0 - (chart_height * i / 4)
+                canvas.create_line(x0, y, x1, y, fill="#eeeeee")
+
+                value_label = max_value * i / 4
+
+                if max_value >= 1000:
+                    display = f"{value_label / 1000:.0f}k"
+                else:
+                    display = str(int(value_label))
+
+                canvas.create_text(
+                    x0 - 8,
+                    y,
+                    text=display,
+                    anchor="e",
+                    fill="#666666",
+                    font=("Segoe UI", 8)
+                )
+
+            points = []
+
+            if len(values) == 1:
+                x = x0 + chart_width / 2
+                y = y0 - (values[0] / max_value) * chart_height
+                points.append((x, y))
+            else:
+                for index, value in enumerate(values):
+                    x = x0 + (chart_width * index / (len(values) - 1))
+                    y = y0 - (value / max_value) * chart_height
+                    points.append((x, y))
+
+            for index in range(len(points) - 1):
+                canvas.create_line(
+                    points[index][0],
+                    points[index][1],
+                    points[index + 1][0],
+                    points[index + 1][1],
+                    fill="#1a73e8",
+                    width=3
+                )
+
+            for index, (x, y) in enumerate(points):
+                canvas.create_oval(
+                    x - 4,
+                    y - 4,
+                    x + 4,
+                    y + 4,
+                    fill="#1a73e8",
+                    outline="#1a73e8"
+                )
+
+                if len(points) <= 8 or index in [0, len(points) - 1]:
+                    label_text = labels[index][5:] if len(labels[index]) >= 10 else labels[index]
+
+                    canvas.create_text(
+                        x,
+                        y0 + 16,
+                        text=label_text,
+                        anchor="n",
+                        fill="#666666",
+                        font=("Segoe UI", 8)
+                    )
+
+        canvas.bind("<Configure>", redraw)
+        canvas.after(100, redraw)
+
+    def draw_pie_chart(self, parent, pie_data):
+        canvas = tk.Canvas(
+            parent,
+            bg="white",
+            height=220,
+            highlightthickness=1,
+            highlightbackground="#dddddd"
+        )
+        canvas.pack(fill="both", expand=True)
+
+        colors = [
+            "#1a73e8",
+            "#34a853",
+            "#fbbc04",
+            "#ea4335",
+            "#9334e6",
+            "#00acc1",
+            "#ff7043",
+            "#6c757d"
+        ]
+
+        def redraw(event=None):
+            canvas.delete("all")
+
+            width = canvas.winfo_width()
+            height = canvas.winfo_height()
+
+            canvas.create_text(
+                12,
+                12,
+                text="Bookings by Event Type",
+                anchor="w",
+                font=("Segoe UI", 11, "bold")
+            )
+
+            if not pie_data:
+                canvas.create_text(
+                    width / 2,
+                    height / 2,
+                    text="No event type data",
+                    fill="#777777",
+                    font=("Segoe UI", 11)
+                )
+                return
+
+            total = sum(int(item["value"]) for item in pie_data)
+
+            if total <= 0:
+                canvas.create_text(
+                    width / 2,
+                    height / 2,
+                    text="No event type data",
+                    fill="#777777",
+                    font=("Segoe UI", 11)
+                )
+                return
+
+            size = min(height - 65, width * 0.38)
+            x0 = 25
+            y0 = 45
+            x1 = x0 + size
+            y1 = y0 + size
+
+            start_angle = 0
+
+            for index, item in enumerate(pie_data):
+                value = int(item["value"])
+                extent = (value / total) * 360
+                color = colors[index % len(colors)]
+
+                canvas.create_arc(
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    start=start_angle,
+                    extent=extent,
+                    fill=color,
+                    outline="white"
+                )
+
+                start_angle += extent
+
+            legend_x = x1 + 25
+            legend_y = 50
+
+            for index, item in enumerate(pie_data[:8]):
+                color = colors[index % len(colors)]
+
+                canvas.create_rectangle(
+                    legend_x,
+                    legend_y + index * 23,
+                    legend_x + 12,
+                    legend_y + 12 + index * 23,
+                    fill=color,
+                    outline=color
+                )
+
+                percent = (int(item["value"]) / total) * 100
+
+                canvas.create_text(
+                    legend_x + 18,
+                    legend_y + 6 + index * 23,
+                    text=f"{item['label']} ({percent:.1f}%)",
+                    anchor="w",
+                    fill="#333333",
+                    font=("Segoe UI", 9)
+                )
+
+        canvas.bind("<Configure>", redraw)
+        canvas.after(100, redraw)
+
+    def validate_filter_dates(self):
+        start_date = self.start_date_var.get().strip()
+        end_date = self.end_date_var.get().strip()
+
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except Exception:
+            raise ValueError("Date filter must use YYYY-MM-DD format.")
+
+        if start > end:
+            raise ValueError("Start date cannot be later than end date.")
+
+        return start_date, end_date
+
+    def load_dashboard(self):
+        self.clear_dashboard()
+
+        try:
+            start_date, end_date = self.validate_filter_dates()
+
+            data = self.app.reports_service.get_dashboard_data(
+                start_date,
+                end_date
+            )
+
+        except Exception as e:
+            messagebox.showerror("Dashboard Error", str(e))
+            return
+
+        metrics = data["metrics"]
+        progress = data["progress"]
+
+        kpi_row = ttk.Frame(self.content)
+        kpi_row.pack(fill="x", pady=(0, 8))
+
+        self.create_metric_card(
+            kpi_row,
+            "Total Bookings",
+            str(metrics["total_bookings"]),
+            progress["total_bookings"]
+        )
+
+        self.create_metric_card(
+            kpi_row,
+            "Verified Payments",
+            self.format_price(metrics["verified_payments"]),
+            progress["verified_payments"]
+        )
+
+        self.create_metric_card(
+            kpi_row,
+            "Upcoming Events",
+            str(metrics["upcoming_events"]),
+            progress["upcoming_events"]
+        )
+
+        self.create_metric_card(
+            kpi_row,
+            "New Clients",
+            str(metrics["new_clients"]),
+            progress["new_clients"]
+        )
+
+        graph_row = ttk.Frame(self.content)
+        graph_row.pack(fill="both", expand=True, pady=(6, 8))
+
+        booking_graph = ttk.LabelFrame(graph_row, text="Booking Trend", padding=10)
+        booking_graph.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        payment_graph = ttk.LabelFrame(graph_row, text="Payment Trend", padding=10)
+        payment_graph.pack(side="left", fill="both", expand=True, padx=(5, 5))
+
+        pie_box = ttk.LabelFrame(graph_row, text="Distribution", padding=10)
+        pie_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
+
+        self.draw_line_graph(
+            booking_graph,
+            data["line_data"],
+            "Bookings Over Time",
+            "booking_count",
+            "event_date"
+        )
+
+        self.draw_line_graph(
+            payment_graph,
+            data["payment_trend"],
+            "Verified Payments Over Time",
+            "total_amount",
+            "payment_date"
+        )
+
+        self.draw_pie_chart(
+            pie_box,
+            data["pie_data"]
+        )
+
+        operational_row = ttk.Frame(self.content)
+        operational_row.pack(fill="both", expand=True, pady=(6, 8))
+
+        today_box = ttk.LabelFrame(operational_row, text="Today's Schedule", padding=10)
+        today_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        recent_box = ttk.LabelFrame(operational_row, text="Recent Bookings", padding=10)
+        recent_box.pack(side="left", fill="both", expand=True, padx=(5, 5))
+
+        queue_box = ttk.LabelFrame(operational_row, text="Payment Verification Queue", padding=10)
+        queue_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
+
+        today_table = self.create_table(
+            today_box,
+            columns=("time", "client", "event_type", "status"),
+            headings=("Time", "Client", "Event", "Status"),
+            widths=(75, 140, 120, 90),
+            height=6
+        )
+
+        for item in data["today_schedule"]:
+            today_table.insert(
+                "",
+                "end",
+                values=(
+                    item["event_time"] or "",
+                    item["client_name"] or "",
+                    item["event_type"] or "",
+                    item["status"] or ""
+                )
+            )
+
+        recent_table = self.create_table(
+            recent_box,
+            columns=("date", "client", "package", "status"),
+            headings=("Date", "Client", "Package", "Status"),
+            widths=(90, 130, 180, 90),
+            height=6
+        )
+
+        for item in data["recent_bookings"]:
+            recent_table.insert(
+                "",
+                "end",
+                values=(
+                    item["event_date"] or "",
+                    item["client_name"] or "",
+                    item["package_name"] or "",
+                    item["status"] or ""
+                )
+            )
+
+        queue_table = self.create_table(
+            queue_box,
+            columns=("client", "type", "amount", "method"),
+            headings=("Client", "Type", "Amount", "Method"),
+            widths=(130, 110, 100, 90),
+            height=6
+        )
+
+        for item in data["payment_queue"]:
+            queue_table.insert(
+                "",
+                "end",
+                values=(
+                    item["client_name"] or "",
+                    item["payment_type"] or "",
+                    self.format_price(item["amount"]),
+                    item["payment_method"] or ""
+                )
+            )
+
+        bottom_row = ttk.Frame(self.content)
+        bottom_row.pack(fill="both", expand=True, pady=(6, 0))
+
+        package_box = ttk.LabelFrame(bottom_row, text="Packages at a Glance", padding=10)
+        package_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        upcoming_box = ttk.LabelFrame(bottom_row, text="Upcoming Events", padding=10)
+        upcoming_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
+
+        package_table = self.create_table(
+            package_box,
+            columns=("package", "bookings", "revenue"),
+            headings=("Package", "Bookings", "Revenue"),
+            widths=(260, 80, 120),
+            height=5
+        )
+
+        for item in data["package_performance"]:
+            package_table.insert(
+                "",
+                "end",
+                values=(
+                    item["package_name"] or "",
+                    item["booking_count"],
+                    self.format_price(item["revenue"])
+                )
+            )
+
+        upcoming_table = self.create_table(
+            upcoming_box,
+            columns=("date", "time", "client", "status"),
+            headings=("Date", "Time", "Client", "Status"),
+            widths=(90, 80, 180, 100),
+            height=5
+        )
+
+        for item in data["upcoming_events"]:
+            upcoming_table.insert(
+                "",
+                "end",
+                values=(
+                    item["event_date"] or "",
+                    item["event_time"] or "",
+                    item["client_name"] or "",
+                    item["status"] or ""
+                )
+            )
 
 class MainSystemPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp, user: SessionUser):
@@ -312,6 +1295,10 @@ class MainSystemPage(ttk.Frame):
     def show_module(self, module_name):
         self.clear_content()
 
+        if module_name == "Dashboard":
+            DashboardPage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
         if module_name == "User Management":
             UserManagementPage(self.content, self.app).pack(fill="both", expand=True)
             return
@@ -338,6 +1325,10 @@ class MainSystemPage(ttk.Frame):
 
         if module_name == "Payment":
             PaymentPage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
+        if module_name == "Reports":
+            ReportsPage(self.content, self.app).pack(fill="both", expand=True)
             return
 
         ttk.Label(
@@ -3752,6 +4743,385 @@ class PaymentFormWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+
+class ReportsPage(ttk.Frame):
+    def __init__(self, parent, app: PanaloApp):
+        super().__init__(parent)
+
+        self.app = app
+        self.reports_data = {}
+
+        self.build_ui()
+        self.load_reports()
+
+    def build_ui(self):
+        header = ttk.Frame(self)
+        header.pack(fill="x", pady=(0, 15))
+
+        ttk.Label(
+            header,
+            text="Reports",
+            font=("Segoe UI", 24, "bold")
+        ).pack(side="left")
+
+        ttk.Button(
+            header,
+            text="Refresh Reports",
+            command=self.load_reports
+        ).pack(side="right")
+
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True)
+
+        self.overview_tab = ttk.Frame(self.notebook, padding=15)
+        self.bookings_tab = ttk.Frame(self.notebook, padding=15)
+        self.payments_tab = ttk.Frame(self.notebook, padding=15)
+        self.schedules_tab = ttk.Frame(self.notebook, padding=15)
+        self.clients_tab = ttk.Frame(self.notebook, padding=15)
+        self.packages_tab = ttk.Frame(self.notebook, padding=15)
+
+        self.notebook.add(self.overview_tab, text="Overview")
+        self.notebook.add(self.bookings_tab, text="Bookings")
+        self.notebook.add(self.payments_tab, text="Payments")
+        self.notebook.add(self.schedules_tab, text="Schedules")
+        self.notebook.add(self.clients_tab, text="Clients")
+        self.notebook.add(self.packages_tab, text="Packages")
+
+    def clear_tab(self, tab):
+        for widget in tab.winfo_children():
+            widget.destroy()
+
+    def format_price(self, value):
+        try:
+            return f"₱{float(value or 0):,.2f}"
+        except Exception:
+            return "₱0.00"
+
+    def create_card(self, parent, title, value):
+        card = tk.Frame(
+            parent,
+            bg="white",
+            relief="solid",
+            bd=1
+        )
+        card.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+        tk.Label(
+            card,
+            text=title,
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+
+        tk.Label(
+            card,
+            text=value,
+            bg="white",
+            fg="#111111",
+            font=("Segoe UI", 16, "bold")
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+
+        return card
+
+    def create_table(self, parent, columns, headings, widths=None, height=12):
+        table = ttk.Treeview(
+            parent,
+            columns=columns,
+            show="headings",
+            height=height
+        )
+
+        for index, column in enumerate(columns):
+            table.heading(column, text=headings[index])
+            width = widths[index] if widths else 120
+            table.column(column, width=width)
+
+        table.pack(fill="both", expand=True, pady=(8, 0))
+
+        return table
+
+    def load_reports(self):
+        self.reports_data = self.app.reports_service.get_all_reports()
+
+        self.render_overview_tab()
+        self.render_bookings_tab()
+        self.render_payments_tab()
+        self.render_schedules_tab()
+        self.render_clients_tab()
+        self.render_packages_tab()
+
+    def render_overview_tab(self):
+        self.clear_tab(self.overview_tab)
+
+        booking = self.reports_data["booking"]
+        payment = self.reports_data["payment"]
+        schedule = self.reports_data["schedule"]
+        client = self.reports_data["client"]
+
+        row1 = ttk.Frame(self.overview_tab)
+        row1.pack(fill="x")
+
+        self.create_card(row1, "Total Bookings", str(booking["total_bookings"]))
+        self.create_card(row1, "Total Clients", str(client["total_clients"]))
+        self.create_card(row1, "Upcoming Events", str(schedule["upcoming_count"]))
+        self.create_card(row1, "This Month Schedules", str(schedule["this_month_count"]))
+
+        row2 = ttk.Frame(self.overview_tab)
+        row2.pack(fill="x", pady=(8, 0))
+
+        self.create_card(row2, "Expected Revenue", self.format_price(payment["expected_revenue"]))
+        self.create_card(row2, "Verified Payments", self.format_price(payment["verified_paid"]))
+        self.create_card(row2, "Pending Payments", self.format_price(payment["pending_payment"]))
+        self.create_card(row2, "Unpaid Balance", self.format_price(payment["total_balance"]))
+
+        ttk.Label(
+            self.overview_tab,
+            text="Upcoming Events",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        table = self.create_table(
+            self.overview_tab,
+            columns=("date", "time", "client", "event_type", "package", "status"),
+            headings=("Date", "Time", "Client", "Event Type", "Package", "Status"),
+            widths=(100, 90, 160, 140, 220, 110),
+            height=8
+        )
+
+        for event in schedule["upcoming_events"]:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    event["event_date"] or "",
+                    event["event_time"] or "",
+                    event["client_name"] or "",
+                    event["event_type"] or "",
+                    event["package_name"] or "",
+                    event["status"] or ""
+                )
+            )
+
+    def render_bookings_tab(self):
+        self.clear_tab(self.bookings_tab)
+
+        booking = self.reports_data["booking"]
+
+        row = ttk.Frame(self.bookings_tab)
+        row.pack(fill="x")
+
+        self.create_card(row, "Total Bookings", str(booking["total_bookings"]))
+
+        ttk.Label(
+            self.bookings_tab,
+            text="Bookings by Status",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        status_table = self.create_table(
+            self.bookings_tab,
+            columns=("status", "count"),
+            headings=("Status", "Count"),
+            widths=(240, 120),
+            height=7
+        )
+
+        for item in booking["by_status"]:
+            status_table.insert(
+                "",
+                "end",
+                values=(
+                    item["status"],
+                    item["count"]
+                )
+            )
+
+        ttk.Label(
+            self.bookings_tab,
+            text="Bookings by Event Type",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        event_type_table = self.create_table(
+            self.bookings_tab,
+            columns=("event_type", "count"),
+            headings=("Event Type", "Count"),
+            widths=(240, 120),
+            height=7
+        )
+
+        for item in booking["by_event_type"]:
+            event_type_table.insert(
+                "",
+                "end",
+                values=(
+                    item["event_type"],
+                    item["count"]
+                )
+            )
+
+    def render_payments_tab(self):
+        self.clear_tab(self.payments_tab)
+
+        payment = self.reports_data["payment"]
+
+        row1 = ttk.Frame(self.payments_tab)
+        row1.pack(fill="x")
+
+        self.create_card(row1, "Expected Revenue", self.format_price(payment["expected_revenue"]))
+        self.create_card(row1, "Verified Payments", self.format_price(payment["verified_paid"]))
+        self.create_card(row1, "Pending Payments", self.format_price(payment["pending_payment"]))
+        self.create_card(row1, "Refunded Amount", self.format_price(payment["refunded_amount"]))
+
+        row2 = ttk.Frame(self.payments_tab)
+        row2.pack(fill="x", pady=(8, 0))
+
+        self.create_card(row2, "Total Balance", self.format_price(payment["total_balance"]))
+        self.create_card(row2, "Paid Bookings", str(payment["paid_count"]))
+        self.create_card(row2, "Partial Bookings", str(payment["partial_count"]))
+        self.create_card(row2, "Unpaid Bookings", str(payment["unpaid_count"]))
+
+        ttk.Label(
+            self.payments_tab,
+            text="Booking Payment Status",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        table = self.create_table(
+            self.payments_tab,
+            columns=("booking_id", "client", "total", "paid", "balance", "status"),
+            headings=("Booking ID", "Client", "Total", "Paid", "Balance", "Payment Status"),
+            widths=(90, 180, 120, 120, 120, 130),
+            height=10
+        )
+
+        for item in payment["booking_payment_statuses"]:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    item["booking_id"],
+                    item["client_name"] or "",
+                    self.format_price(item["total_amount"]),
+                    self.format_price(item["net_paid"]),
+                    self.format_price(item["balance"]),
+                    item["payment_status"]
+                )
+            )
+
+    def render_schedules_tab(self):
+        self.clear_tab(self.schedules_tab)
+
+        schedule = self.reports_data["schedule"]
+
+        row = ttk.Frame(self.schedules_tab)
+        row.pack(fill="x")
+
+        self.create_card(row, "Today", str(schedule["today_count"]))
+        self.create_card(row, "Upcoming", str(schedule["upcoming_count"]))
+        self.create_card(row, "This Month", str(schedule["this_month_count"]))
+        self.create_card(row, "Cancelled", str(schedule["cancelled_count"]))
+
+        ttk.Label(
+            self.schedules_tab,
+            text="Upcoming Schedules",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        table = self.create_table(
+            self.schedules_tab,
+            columns=("date", "time", "client", "event_type", "package", "location", "status"),
+            headings=("Date", "Time", "Client", "Event Type", "Package", "Location", "Status"),
+            widths=(100, 90, 150, 130, 190, 190, 110),
+            height=12
+        )
+
+        for event in schedule["upcoming_events"]:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    event["event_date"] or "",
+                    event["event_time"] or "",
+                    event["client_name"] or "",
+                    event["event_type"] or "",
+                    event["package_name"] or "",
+                    event["event_location"] or "",
+                    event["status"] or ""
+                )
+            )
+
+    def render_clients_tab(self):
+        self.clear_tab(self.clients_tab)
+
+        client = self.reports_data["client"]
+
+        row = ttk.Frame(self.clients_tab)
+        row.pack(fill="x")
+
+        self.create_card(row, "Total Clients", str(client["total_clients"]))
+        self.create_card(row, "Clients With Bookings", str(client["clients_with_bookings"]))
+        self.create_card(row, "Clients Without Bookings", str(client["clients_without_bookings"]))
+
+        ttk.Label(
+            self.clients_tab,
+            text="Recent Clients",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        table = self.create_table(
+            self.clients_tab,
+            columns=("id", "name", "contact", "notes", "created_at"),
+            headings=("ID", "Client Name", "Contact", "Notes", "Created At"),
+            widths=(60, 200, 140, 350, 160),
+            height=12
+        )
+
+        for item in client["recent_clients"]:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    item["id"],
+                    item["full_name"] or "",
+                    item["contact_number"] or "",
+                    item["notes"] or "",
+                    item["created_at"] or ""
+                )
+            )
+
+    def render_packages_tab(self):
+        self.clear_tab(self.packages_tab)
+
+        packages = self.reports_data["packages"]
+
+        ttk.Label(
+            self.packages_tab,
+            text="Package Performance",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        table = self.create_table(
+            self.packages_tab,
+            columns=("id", "package_name", "booking_count", "revenue"),
+            headings=("ID", "Package", "Booking Count", "Total Revenue"),
+            widths=(60, 320, 130, 150),
+            height=15
+        )
+
+        for item in packages:
+            table.insert(
+                "",
+                "end",
+                values=(
+                    item["id"],
+                    item["package_name"] or "",
+                    item["booking_count"],
+                    self.format_price(item["total_revenue"])
+                )
+            )
 
 
 class SettingsPage(ttk.Frame):
