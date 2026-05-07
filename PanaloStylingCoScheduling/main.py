@@ -21,9 +21,27 @@ from reports_service import ReportsService
 
 ASSETS_DIR = "assets"
 IMAGES_DIR = os.path.join(ASSETS_DIR, "images")
+
 LOGIN_BACKGROUND_PATH = os.path.join(IMAGES_DIR, "login_background.png")
 APP_ICON_PATH = os.path.join(IMAGES_DIR, "app_icon.png")
+
+SIDEBAR_LOGO_PATH = os.path.join(IMAGES_DIR, "sidebar_logo.png")
+SIDEBAR_BACKGROUND_PATH = os.path.join(IMAGES_DIR, "sidebar_background.png")
+MAIN_BACKGROUND_PATH = os.path.join(IMAGES_DIR, "main_background.png")
+
 REMEMBER_ME_PATH = os.path.join("data", "remember_me.json")
+
+APP_BG = "#fbf7ef"
+SIDEBAR_BG = "#fbf7ef"
+SIDEBAR_ACTIVE_BG = "#e9e7d3"
+TEXT_DARK = "#2f2b1f"
+TEXT_MUTED = "#756f60"
+ACCENT_OLIVE = "#68713f"
+DANGER_RED = "#9c1f1f"
+CARD_BG = "#fbf7ef"
+TABLE_BG = "#fbf7ef"
+TABLE_HEADER_BG = "#f1eadc"
+BORDER_SOFT = "#d8cbb6"
 
 TIME_OPTIONS = [
     "06:00 AM", "06:30 AM",
@@ -54,7 +72,9 @@ class PanaloApp(tk.Tk):
 
         self.set_window_icon()
 
-        self.title(APP_NAME)
+        self.title("Panalo Styling Co. Admin System")
+        self.configure(bg=APP_BG)
+        self.configure_app_styles()
         self.geometry("1100x700")
         self.minsize(950, 600)
 
@@ -86,6 +106,72 @@ class PanaloApp(tk.Tk):
     def clear_container(self):
         for widget in self.container.winfo_children():
             widget.destroy()
+
+    def configure_app_styles(self):
+        style = ttk.Style()
+
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(
+            "TFrame",
+            background=APP_BG
+        )
+
+        style.configure(
+            "TLabel",
+            background=APP_BG,
+            foreground=TEXT_DARK,
+            font=("Segoe UI", 10)
+        )
+
+        style.configure(
+            "TButton",
+            font=("Segoe UI", 9),
+            padding=(10, 5)
+        )
+
+        style.configure(
+            "TLabelframe",
+            background=APP_BG,
+            foreground=TEXT_DARK,
+            bordercolor=BORDER_SOFT,
+            relief="solid"
+        )
+
+        style.configure(
+            "TLabelframe.Label",
+            background=APP_BG,
+            foreground=ACCENT_OLIVE,
+            font=("Segoe UI", 10, "bold")
+        )
+
+        style.configure(
+            "Treeview",
+            background=TABLE_BG,
+            fieldbackground=TABLE_BG,
+            foreground=TEXT_DARK,
+            rowheight=26,
+            bordercolor=BORDER_SOFT,
+            lightcolor=BORDER_SOFT,
+            darkcolor=BORDER_SOFT
+        )
+
+        style.configure(
+            "Treeview.Heading",
+            background=TABLE_HEADER_BG,
+            foreground=TEXT_DARK,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat"
+        )
+
+        style.map(
+            "Treeview",
+            background=[("selected", SIDEBAR_ACTIVE_BG)],
+            foreground=[("selected", TEXT_DARK)]
+        )
 
     def show_login_page(self):
         self.clear_container()
@@ -703,9 +789,11 @@ class DashboardPage(ttk.Frame):
     def create_metric_card(self, parent, title, value, progress_value, subtitle="vs previous period"):
         card = tk.Frame(
             parent,
-            bg="white",
+            bg=APP_BG,
             relief="solid",
             bd=1,
+            highlightbackground=BORDER_SOFT,
+            highlightthickness=1,
             height=105
         )
         card.pack(side="left", fill="both", expand=True, padx=5, pady=5)
@@ -714,7 +802,7 @@ class DashboardPage(ttk.Frame):
         tk.Label(
             card,
             text=title,
-            bg="white",
+            bg=APP_BG,
             fg="#555555",
             font=("Segoe UI", 9)
         ).pack(anchor="w", padx=12, pady=(10, 2))
@@ -722,18 +810,18 @@ class DashboardPage(ttk.Frame):
         tk.Label(
             card,
             text=value,
-            bg="white",
+            bg=APP_BG,
             fg="#111111",
             font=("Segoe UI", 18, "bold")
         ).pack(anchor="w", padx=12)
 
-        progress_frame = tk.Frame(card, bg="white")
+        progress_frame = tk.Frame(card, bg=APP_BG)
         progress_frame.pack(anchor="w", padx=12, pady=(5, 0))
 
         tk.Label(
             progress_frame,
             text=self.format_progress(progress_value),
-            bg="white",
+            bg=APP_BG,
             fg=self.get_progress_color(progress_value),
             font=("Segoe UI", 9, "bold")
         ).pack(side="left")
@@ -741,7 +829,7 @@ class DashboardPage(ttk.Frame):
         tk.Label(
             progress_frame,
             text=f" {subtitle}",
-            bg="white",
+            bg=APP_BG,
             fg="#777777",
             font=("Segoe UI", 8)
         ).pack(side="left")
@@ -766,10 +854,10 @@ class DashboardPage(ttk.Frame):
     def draw_line_graph(self, parent, line_data, title, value_key, label_key):
         canvas = tk.Canvas(
             parent,
-            bg="white",
+            bg=APP_BG,
             height=220,
             highlightthickness=1,
-            highlightbackground="#dddddd"
+            highlightbackground=BORDER_SOFT
         )
         canvas.pack(fill="both", expand=True)
 
@@ -1217,94 +1305,504 @@ class DashboardPage(ttk.Frame):
                 )
             )
 
-class MainSystemPage(ttk.Frame):
+class MainSystemPage(tk.Frame):
+    SIDEBAR_WIDTH = 255
+    SIDEBAR_COLLAPSED_WIDTH = 72
+
     def __init__(self, parent, app: PanaloApp, user: SessionUser):
         super().__init__(parent)
+
         self.app = app
         self.user = user
-        self.content = None
+        self.active_module = "Dashboard"
+        self.sidebar_collapsed = False
 
+        self.sidebar_bg_original = None
+        self.sidebar_bg_photo = None
+
+        self.main_bg_original = None
+        self.main_bg_photo = None
+
+        self.logo_original = None
+        self.logo_photo = None
+
+        self.nav_widgets = []
+
+        self.load_images()
         self.build_ui()
 
+    def load_images(self):
+        self.sidebar_bg_original = None
+        self.main_bg_original = None
+
+        try:
+            if os.path.exists(SIDEBAR_LOGO_PATH):
+                self.logo_original = Image.open(SIDEBAR_LOGO_PATH)
+        except Exception:
+            self.logo_original = None
+
+    def resize_image_cover(self, image, target_width, target_height):
+        image_width, image_height = image.size
+
+        image_ratio = image_width / image_height
+        target_ratio = target_width / target_height
+
+        if image_ratio > target_ratio:
+            new_height = target_height
+            new_width = int(target_height * image_ratio)
+        else:
+            new_width = target_width
+            new_height = int(target_width / image_ratio)
+
+        resized = image.resize((new_width, new_height), Image.LANCZOS)
+
+        left = (new_width - target_width) // 2
+        top = (new_height - target_height) // 2
+        right = left + target_width
+        bottom = top + target_height
+
+        return resized.crop((left, top, right, bottom))
+
+    def resize_image_contain(self, image, max_width, max_height):
+        image_width, image_height = image.size
+
+        ratio = min(max_width / image_width, max_height / image_height)
+
+        new_width = int(image_width * ratio)
+        new_height = int(image_height * ratio)
+
+        return image.resize((new_width, new_height), Image.LANCZOS)
+
     def build_ui(self):
-        sidebar = tk.Frame(self, bg="#222222", width=230)
-        sidebar.pack(side="left", fill="y")
-        sidebar.pack_propagate(False)
+        self.configure(bg=APP_BG)
 
-        self.content = ttk.Frame(self, padding=25)
-        self.content.pack(side="left", fill="both", expand=True)
+        self.sidebar_canvas = tk.Canvas(
+            self,
+            width=self.SIDEBAR_WIDTH,
+            highlightthickness=0,
+            bd=0,
+            bg=SIDEBAR_BG
+        )
+        self.sidebar_canvas.pack(side="left", fill="y")
+        self.sidebar_canvas.pack_propagate(False)
 
-        tk.Label(
-            sidebar,
-            text="PanaloStylingCo",
-            bg="#222222",
-            fg="white",
-            font=("Segoe UI", 16, "bold")
-        ).pack(pady=(25, 5))
+        self.main_canvas = tk.Canvas(
+            self,
+            highlightthickness=0,
+            bd=0,
+            bg=APP_BG
+        )
+        self.main_canvas.pack(side="left", fill="both", expand=True)
 
-        tk.Label(
-            sidebar,
-            text=f"{self.user.full_name}\n{self.user.role}",
-            bg="#222222",
-            fg="#dddddd",
-            font=("Segoe UI", 10),
-            justify="center"
-        ).pack(pady=(0, 25))
-
-        allowed_modules = self.app.auth_service.get_user_permissions(
-            self.user.id,
-            self.user.role
+        self.content = tk.Frame(
+            self.main_canvas,
+            bg=APP_BG
         )
 
-        for module in APP_MODULES:
-            if module in allowed_modules:
-                btn = tk.Button(
-                    sidebar,
-                    text=module,
-                    anchor="w",
-                    padx=20,
-                    bg="#2f2f2f",
-                    fg="white",
-                    activebackground="#444444",
-                    activeforeground="white",
-                    relief="flat",
-                    command=lambda name=module: self.show_module(name)
-                )
-                btn.pack(fill="x", pady=1)
-
-        logout_btn = tk.Button(
-            sidebar,
-            text="Logout",
-            anchor="w",
-            padx=20,
-            bg="#8b1e1e",
-            fg="white",
-            activebackground="#a82b2b",
-            activeforeground="white",
-            relief="flat",
-            command=self.app.logout
+        self.content_window = self.main_canvas.create_window(
+            24,
+            24,
+            window=self.content,
+            anchor="nw"
         )
-        logout_btn.pack(side="bottom", fill="x", pady=(0, 20))
 
+        self.sidebar_canvas.bind("<Configure>", self.redraw_sidebar_background)
+        self.main_canvas.bind("<Configure>", self.redraw_main_background)
+
+        self.build_sidebar()
         self.show_module("Dashboard")
+
+    def get_nav_items(self):
+        return [
+            {
+                "module": "Dashboard",
+                "label": "Dashboard",
+                "icon": "\uE80F",
+                "subtitle": ""
+            },
+            {
+                "module": "Clients",
+                "label": "Clients",
+                "icon": "\uE716",
+                "subtitle": ""
+            },
+            {
+                "module": "Bookings",
+                "label": "Bookings",
+                "icon": "\uE8A5",
+                "subtitle": ""
+            },
+            {
+                "module": "Packages",
+                "label": "Packages",
+                "icon": "\uE7BF",
+                "subtitle": ""
+            },
+            {
+                "module": "Schedule",
+                "label": "Schedules",
+                "icon": "\uE787",
+                "subtitle": ""
+            },
+            {
+                "module": "Payment",
+                "label": "Payments",
+                "icon": "\uE8C7",
+                "subtitle": "verification / refunds"
+            },
+            {
+                "module": "Reports",
+                "label": "Reports",
+                "icon": "\uE9D2",
+                "subtitle": ""
+            },
+            {
+                "module": "User Management",
+                "label": "Accounts",
+                "icon": "\uE77B",
+                "subtitle": "add, edit, delete"
+            },
+            {
+                "module": "Settings",
+                "label": "Settings",
+                "icon": "\uE713",
+                "subtitle": ""
+            },
+        ]
+
+    def can_access_module(self, module_name):
+        role = (self.user.role or "").lower()
+
+        if role == "admin":
+            return True
+
+        # Flexible support in case your SessionUser stores privileges differently.
+        possible_attrs = [
+            "allowed_modules",
+            "accessible_modules",
+            "modules",
+            "privileges",
+            "permissions"
+        ]
+
+        for attr in possible_attrs:
+            if hasattr(self.user, attr):
+                value = getattr(self.user, attr)
+
+                if isinstance(value, str):
+                    return module_name in value
+
+                if isinstance(value, (list, tuple, set)):
+                    return module_name in value
+
+        # Fallback for staff accounts.
+        restricted = ["User Management", "Settings"]
+        return module_name not in restricted
+
+    def build_sidebar(self):
+        self.sidebar_canvas.delete("nav")
+        self.nav_widgets.clear()
+
+        sidebar_width = self.SIDEBAR_COLLAPSED_WIDTH if self.sidebar_collapsed else self.SIDEBAR_WIDTH
+        self.sidebar_canvas.config(width=sidebar_width)
+
+        y = 28
+
+        if not self.sidebar_collapsed:
+            self.draw_logo(y)
+            y += 230
+        else:
+            y += 18
+
+        for item in self.get_nav_items():
+            if not self.can_access_module(item["module"]):
+                continue
+
+            self.create_nav_item(
+                module_name=item["module"],
+                label=item["label"],
+                icon=item["icon"],
+                subtitle=item["subtitle"],
+                y=y
+            )
+
+            if item["subtitle"] and not self.sidebar_collapsed:
+                y += 56
+            else:
+                y += 47
+
+        self.create_sidebar_footer()
+
+    def draw_logo(self, y):
+        if self.logo_original:
+            logo = self.resize_image_contain(self.logo_original, 150, 135)
+            self.logo_photo = ImageTk.PhotoImage(logo)
+
+            self.sidebar_canvas.create_image(
+                self.SIDEBAR_WIDTH // 2,
+                y + 72,
+                image=self.logo_photo,
+                anchor="center",
+                tags="nav"
+            )
+        else:
+            self.sidebar_canvas.create_text(
+                self.SIDEBAR_WIDTH // 2,
+                y + 58,
+                text="P",
+                fill=ACCENT_OLIVE,
+                font=("Georgia", 54, "bold"),
+                justify="center",
+                tags="nav"
+            )
+
+        self.sidebar_canvas.create_text(
+            self.SIDEBAR_WIDTH // 2,
+            y + 155,
+            text="Panalo Styling Co.",
+            fill=ACCENT_OLIVE,
+            font=("Georgia", 18, "bold"),
+            justify="center",
+            tags="nav"
+        )
+
+        self.sidebar_canvas.create_text(
+            self.SIDEBAR_WIDTH // 2,
+            y + 180,
+            text="Admin System",
+            fill=TEXT_MUTED,
+            font=("Segoe UI", 9),
+            justify="center",
+            tags="nav"
+        )
+
+    def create_nav_item(self, module_name, label, icon, subtitle, y):
+        sidebar_width = self.SIDEBAR_COLLAPSED_WIDTH if self.sidebar_collapsed else self.SIDEBAR_WIDTH
+
+        is_active = self.active_module == module_name
+
+        item_height = 44 if not subtitle or self.sidebar_collapsed else 56
+
+        x1 = 12
+        x2 = sidebar_width - 12
+
+        bg_color = SIDEBAR_ACTIVE_BG if is_active else SIDEBAR_BG
+        text_color = TEXT_DARK
+        icon_color = ACCENT_OLIVE
+
+        button_frame = tk.Frame(
+            self.sidebar_canvas,
+            bg=bg_color,
+            cursor="hand2"
+        )
+
+        button_frame.bind(
+            "<Button-1>",
+            lambda event, name=module_name: self.show_module(name)
+        )
+
+        icon_label = tk.Label(
+            button_frame,
+            text=icon,
+            bg=bg_color,
+            fg=icon_color,
+            font=("Segoe MDL2 Assets", 16),
+            width=3,
+            cursor="hand2"
+        )
+        icon_label.pack(side="left", padx=(13, 8), pady=8)
+        icon_label.bind(
+            "<Button-1>",
+            lambda event, name=module_name: self.show_module(name)
+        )
+
+        if not self.sidebar_collapsed:
+            text_frame = tk.Frame(button_frame, bg=bg_color, cursor="hand2")
+            text_frame.pack(side="left", fill="both", expand=True, pady=6)
+
+            label_widget = tk.Label(
+                text_frame,
+                text=label,
+                bg=bg_color,
+                fg=text_color,
+                font=("Georgia", 13),
+                anchor="w",
+                cursor="hand2"
+            )
+            label_widget.pack(anchor="w")
+
+            label_widget.bind(
+                "<Button-1>",
+                lambda event, name=module_name: self.show_module(name)
+            )
+
+            if subtitle:
+                subtitle_widget = tk.Label(
+                    text_frame,
+                    text=subtitle,
+                    bg=bg_color,
+                    fg=TEXT_MUTED,
+                    font=("Segoe UI", 8),
+                    anchor="w",
+                    cursor="hand2"
+                )
+                subtitle_widget.pack(anchor="w", pady=(1, 0))
+
+                subtitle_widget.bind(
+                    "<Button-1>",
+                    lambda event, name=module_name: self.show_module(name)
+                )
+
+        self.sidebar_canvas.create_window(
+            x1,
+            y,
+            window=button_frame,
+            anchor="nw",
+            width=x2 - x1,
+            height=item_height,
+            tags="nav"
+        )
+
+        self.nav_widgets.append(button_frame)
+
+    def create_sidebar_footer(self):
+        sidebar_width = self.SIDEBAR_COLLAPSED_WIDTH if self.sidebar_collapsed else self.SIDEBAR_WIDTH
+        canvas_height = self.sidebar_canvas.winfo_height()
+
+        if canvas_height <= 1:
+            return
+
+        footer_height = 98
+        footer_y = canvas_height - footer_height
+
+        footer_frame = tk.Frame(
+            self.sidebar_canvas,
+            bg=SIDEBAR_BG
+        )
+
+        logout_button = tk.Button(
+            footer_frame,
+            text="Logout" if not self.sidebar_collapsed else "\uE8AC",
+            command=self.app.show_login_page,
+            bg=SIDEBAR_BG,
+            fg=DANGER_RED,
+            activebackground="#f3e4de",
+            activeforeground=DANGER_RED,
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold")
+        )
+        logout_button.pack(fill="x", padx=12, pady=(8, 6), ipady=6)
+
+        collapse_row = tk.Frame(
+            footer_frame,
+            bg=SIDEBAR_BG
+        )
+        collapse_row.pack(fill="x", padx=12, pady=(2, 8))
+
+        collapse_button = tk.Button(
+            collapse_row,
+            text="\uE76B" if not self.sidebar_collapsed else "\uE76C",
+            command=self.toggle_sidebar,
+            bg="#efecd8",
+            fg=ACCENT_OLIVE,
+            activebackground="#e4e1ca",
+            activeforeground=ACCENT_OLIVE,
+            bd=0,
+            cursor="hand2",
+            font=("Segoe MDL2 Assets", 11),
+            width=4
+        )
+        collapse_button.pack(side="left")
+
+        if not self.sidebar_collapsed:
+            tk.Label(
+                collapse_row,
+                text="Collapse",
+                bg=SIDEBAR_BG,
+                fg=TEXT_DARK,
+                font=("Segoe UI", 9)
+            ).pack(side="left", padx=(8, 0))
+
+        self.sidebar_canvas.create_window(
+            0,
+            footer_y,
+            window=footer_frame,
+            anchor="nw",
+            width=sidebar_width,
+            height=footer_height,
+            tags="nav footer"
+        )
+
+    def toggle_sidebar(self):
+        self.sidebar_collapsed = not self.sidebar_collapsed
+        self.build_sidebar()
+        self.redraw_sidebar_background()
+
+    def redraw_sidebar_background(self, event=None):
+        width = self.sidebar_canvas.winfo_width()
+        height = self.sidebar_canvas.winfo_height()
+
+        self.sidebar_canvas.delete("sidebar_bg")
+
+        self.sidebar_canvas.create_rectangle(
+            0,
+            0,
+            width,
+            height,
+            fill=SIDEBAR_BG,
+            outline="",
+            tags="sidebar_bg"
+        )
+
+        self.sidebar_canvas.tag_lower("sidebar_bg")
+
+        self.sidebar_canvas.delete("footer")
+        self.create_sidebar_footer()
+
+    def redraw_main_background(self, event=None):
+        width = self.main_canvas.winfo_width()
+        height = self.main_canvas.winfo_height()
+
+        self.main_canvas.delete("main_bg")
+
+        self.main_canvas.create_rectangle(
+            0,
+            0,
+            width,
+            height,
+            fill=APP_BG,
+            outline="",
+            tags="main_bg"
+        )
+
+        self.main_canvas.tag_lower("main_bg")
+
+        content_margin = 24
+
+        self.main_canvas.coords(
+            self.content_window,
+            content_margin,
+            content_margin
+        )
+
+        self.main_canvas.itemconfigure(
+            self.content_window,
+            width=max(width - content_margin * 2, 400),
+            height=max(height - content_margin * 2, 300)
+        )
 
     def clear_content(self):
         for widget in self.content.winfo_children():
             widget.destroy()
 
     def show_module(self, module_name):
+        self.active_module = module_name
         self.clear_content()
+        self.build_sidebar()
 
         if module_name == "Dashboard":
             DashboardPage(self.content, self.app).pack(fill="both", expand=True)
-            return
-
-        if module_name == "User Management":
-            UserManagementPage(self.content, self.app).pack(fill="both", expand=True)
-            return
-
-        if module_name == "Settings":
-            SettingsPage(self.content, self.app).pack(fill="both", expand=True)
             return
 
         if module_name == "Clients":
@@ -1329,6 +1827,14 @@ class MainSystemPage(ttk.Frame):
 
         if module_name == "Reports":
             ReportsPage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
+        if module_name == "User Management":
+            UserManagementPage(self.content, self.app).pack(fill="both", expand=True)
+            return
+
+        if module_name == "Settings":
+            SettingsPage(self.content, self.app).pack(fill="both", expand=True)
             return
 
         ttk.Label(
