@@ -15,6 +15,25 @@ from booking_service import BookingService
 from schedule_service import ScheduleService
 from payment_service import PaymentService
 
+TIME_OPTIONS = [
+    "06:00 AM", "06:30 AM",
+    "07:00 AM", "07:30 AM",
+    "08:00 AM", "08:30 AM",
+    "09:00 AM", "09:30 AM",
+    "10:00 AM", "10:30 AM",
+    "11:00 AM", "11:30 AM",
+    "12:00 PM", "12:30 PM",
+    "01:00 PM", "01:30 PM",
+    "02:00 PM", "02:30 PM",
+    "03:00 PM", "03:30 PM",
+    "04:00 PM", "04:30 PM",
+    "05:00 PM", "05:30 PM",
+    "06:00 PM", "06:30 PM",
+    "07:00 PM", "07:30 PM",
+    "08:00 PM", "08:30 PM",
+    "09:00 PM", "09:30 PM",
+    "10:00 PM"
+]
 
 REMEMBER_FILE = Path(__file__).resolve().parent / "data" / "remember_me.json"
 
@@ -53,6 +72,12 @@ class PanaloApp(tk.Tk):
     def show_main_system(self, user: SessionUser):
         self.current_user = user
         self.clear_container()
+
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            self.attributes("-fullscreen", True)
+
         MainSystemPage(self.container, self, user).pack(fill="both", expand=True)
 
     def logout(self):
@@ -1832,7 +1857,12 @@ class BookingFormWindow(tk.Toplevel):
         ).pack(anchor="w", pady=(0, 10))
 
         ttk.Label(left, text="Event Time").pack(anchor="w")
-        ttk.Entry(left, textvariable=self.event_time_var).pack(fill="x", pady=(3, 4))
+        ttk.Combobox(
+            left,
+            textvariable=self.event_time_var,
+            values=TIME_OPTIONS,
+            state="readonly"
+        ).pack(fill="x", pady=(3, 4))
 
         ttk.Label(
             left,
@@ -1969,6 +1999,9 @@ class BookingFormWindow(tk.Toplevel):
 
                 if not self.status_var.get():
                     self.status_var.set(self.status_options[0]["name"])
+
+            if not self.event_time_var.get() and TIME_OPTIONS:
+                self.event_time_var.set(TIME_OPTIONS[0])
 
     def get_selected_event_type_id(self):
         selected_name = self.event_type_var.get()
@@ -2142,6 +2175,7 @@ class SchedulePage(ttk.Frame):
         self.build_ui()
         self.render_current_view()
 
+
     def build_ui(self):
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 12))
@@ -2303,9 +2337,24 @@ class SchedulePage(ttk.Frame):
         client = schedule["client_name"] or "Client"
         return f"{event_time} - {client}"
 
+    def get_schedule_colors(self, schedule):
+        status = (schedule["status"] or "").lower()
+
+        if status == "cancelled":
+            return "#f8d7da", "#842029"
+
+        if status == "completed":
+            return "#d1e7dd", "#0f5132"
+
+        if status == "booked":
+            return "#dbeafe", "#1d4ed8"
+
+        return "#e8f0fe", "#1a73e8"
+
     def get_week_dates(self):
         start = self.selected_date - timedelta(days=(self.selected_date.weekday() + 1) % 7)
         return [start + timedelta(days=i) for i in range(7)]
+
 
     def render_month_view(self):
         month_name = calendar.month_name[self.current_month]
@@ -2396,11 +2445,13 @@ class SchedulePage(ttk.Frame):
                 day_schedules = schedules_by_date.get(date_key, [])
 
                 for sched in day_schedules[:3]:
+                    bg_color, fg_color = self.get_schedule_colors(sched)
+
                     event_label = tk.Label(
                         cell,
                         text=self.format_schedule_text(sched),
-                        bg="#dbeafe",
-                        fg="#1d4ed8",
+                        bg=bg_color,
+                        fg=fg_color,
                         anchor="w",
                         font=("Segoe UI", 8),
                         cursor="hand2"
@@ -2481,22 +2532,18 @@ class SchedulePage(ttk.Frame):
             )
 
             for sched in schedules:
+                bg_color, fg_color = self.get_schedule_colors(sched)
+
                 event_card = tk.Label(
                     day_body,
                     text=self.format_schedule_text(sched),
-                    bg="#dbeafe",
-                    fg="#1d4ed8",
+                    bg=bg_color,
+                    fg=fg_color,
                     anchor="w",
                     justify="left",
                     wraplength=120,
                     font=("Segoe UI", 8),
                     cursor="hand2"
-                )
-                event_card.pack(fill="x", padx=5, pady=3)
-
-                event_card.bind(
-                    "<Button-1>",
-                    lambda event, selected_date=day: self.open_day_from_date(selected_date)
                 )
 
         for col in range(7):
@@ -2540,6 +2587,10 @@ class SchedulePage(ttk.Frame):
             height=16
         )
 
+        self.day_table.tag_configure("cancelled", background="#f8d7da", foreground="#842029")
+        self.day_table.tag_configure("completed", background="#d1e7dd", foreground="#0f5132")
+        self.day_table.tag_configure("normal", background="white", foreground="black")
+
         self.day_table.heading("id", text="ID")
         self.day_table.heading("time", text="Time")
         self.day_table.heading("client", text="Client")
@@ -2559,6 +2610,15 @@ class SchedulePage(ttk.Frame):
         self.day_table.pack(fill="both", expand=True)
 
         for sched in schedules:
+            status_text = (sched["status"] or "").lower()
+
+            if status_text == "cancelled":
+                tag = "cancelled"
+            elif status_text == "completed":
+                tag = "completed"
+            else:
+                tag = "normal"
+
             self.day_table.insert(
                 "",
                 "end",
@@ -2570,7 +2630,8 @@ class SchedulePage(ttk.Frame):
                     sched["package_name"] or "",
                     sched["event_location"] or "",
                     sched["status"] or ""
-                )
+                ),
+                tags=(tag,)
             )
 
         self.day_table.bind("<<TreeviewSelect>>", self.handle_day_selection)
@@ -2862,7 +2923,7 @@ class ScheduleRescheduleWindow(tk.Toplevel):
         self.refresh_callback = refresh_callback
 
         self.title("Reschedule Booking")
-        self.geometry("420x260")
+        self.geometry("460x320")
         self.resizable(False, False)
 
         self.date_var = tk.StringVar(value=schedule["event_date"] or "")
@@ -2887,28 +2948,59 @@ class ScheduleRescheduleWindow(tk.Toplevel):
         ).pack(anchor="w", pady=(0, 15))
 
         ttk.Label(frame, text="New Event Date").pack(anchor="w")
-        ttk.Entry(
-            frame,
-            textvariable=self.date_var
-        ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="New Event Time").pack(anchor="w")
+        date_row = ttk.Frame(frame)
+        date_row.pack(fill="x", pady=(3, 5))
+
         ttk.Entry(
-            frame,
-            textvariable=self.time_var
-        ).pack(fill="x", pady=(3, 15))
+            date_row,
+            textvariable=self.date_var,
+            state="readonly"
+        ).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            date_row,
+            text="Select Date",
+            command=self.open_date_picker
+        ).pack(side="left", padx=(8, 0))
 
         ttk.Label(
             frame,
-            text="Format: YYYY-MM-DD | Must be at least 3 days from today",
+            text="Only available dates can be selected. Minimum reschedule date is 3 days from today.",
             font=("Segoe UI", 9)
-        ).pack(anchor="w", pady=(0, 15))
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(frame, text="New Event Time").pack(anchor="w")
+
+        ttk.Combobox(
+            frame,
+            textvariable=self.time_var,
+            values=TIME_OPTIONS,
+            state="readonly"
+        ).pack(fill="x", pady=(3, 15))
+
+        button_row = ttk.Frame(frame)
+        button_row.pack(fill="x", pady=(15, 0))
 
         ttk.Button(
-            frame,
-            text="Save Reschedule",
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm",
             command=self.save_reschedule
-        ).pack(fill="x")
+        ).pack(side="right", padx=(0, 8))
+
+    def open_date_picker(self):
+        DatePickerWindow(
+            app=self.app,
+            target_var=self.date_var,
+            initial_date=self.date_var.get(),
+            exclude_booking_id=self.schedule["id"]
+        )
 
     def save_reschedule(self):
         try:
@@ -2929,6 +3021,7 @@ class ScheduleRescheduleWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
 
 class PaymentPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
@@ -3098,6 +3191,8 @@ class PaymentPage(ttk.Frame):
         except Exception:
             return "₱0.00"
 
+
+
     def load_booking_summaries(self, search_text=""):
         for item in self.booking_table.get_children():
             self.booking_table.delete(item)
@@ -3243,6 +3338,161 @@ class PaymentPage(ttk.Frame):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+            
+class SimpleDatePickerWindow(tk.Toplevel):
+    def __init__(self, target_var: tk.StringVar, initial_date=None):
+        super().__init__()
+
+        self.target_var = target_var
+
+        today = date.today()
+        self.current_year = today.year
+        self.current_month = today.month
+
+        if initial_date:
+            try:
+                parsed = datetime.strptime(initial_date, "%Y-%m-%d").date()
+                self.current_year = parsed.year
+                self.current_month = parsed.month
+            except Exception:
+                pass
+
+        self.title("Select Payment Date")
+        self.geometry("420x380")
+        self.resizable(False, False)
+
+        self.build_ui()
+        self.render_calendar()
+
+    def build_ui(self):
+        main = ttk.Frame(self, padding=15)
+        main.pack(fill="both", expand=True)
+
+        nav = ttk.Frame(main)
+        nav.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            nav,
+            text="‹",
+            width=4,
+            command=self.previous_month
+        ).pack(side="left")
+
+        self.month_label = ttk.Label(
+            nav,
+            text="",
+            font=("Segoe UI", 14, "bold")
+        )
+        self.month_label.pack(side="left", expand=True)
+
+        ttk.Button(
+            nav,
+            text="›",
+            width=4,
+            command=self.next_month
+        ).pack(side="right")
+
+        self.calendar_frame = ttk.Frame(main)
+        self.calendar_frame.pack(fill="both", expand=True)
+
+        ttk.Button(
+            main,
+            text="Use Today",
+            command=self.use_today
+        ).pack(fill="x", pady=(10, 0))
+
+    def previous_month(self):
+        self.current_month -= 1
+
+        if self.current_month == 0:
+            self.current_month = 12
+            self.current_year -= 1
+
+        self.render_calendar()
+
+    def next_month(self):
+        self.current_month += 1
+
+        if self.current_month == 13:
+            self.current_month = 1
+            self.current_year += 1
+
+        self.render_calendar()
+
+    def use_today(self):
+        self.target_var.set(date.today().strftime("%Y-%m-%d"))
+        self.destroy()
+
+    def render_calendar(self):
+        for widget in self.calendar_frame.winfo_children():
+            widget.destroy()
+
+        self.month_label.config(
+            text=f"{calendar.month_name[self.current_month]} {self.current_year}"
+        )
+
+        day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+        for col, day_name in enumerate(day_names):
+            ttk.Label(
+                self.calendar_frame,
+                text=day_name,
+                anchor="center",
+                font=("Segoe UI", 9, "bold")
+            ).grid(row=0, column=col, sticky="nsew", padx=2, pady=2)
+
+        cal = calendar.Calendar(firstweekday=6)
+        weeks = cal.monthdayscalendar(self.current_year, self.current_month)
+
+        today = date.today()
+
+        for row_index, week in enumerate(weeks, start=1):
+            for col_index, day_number in enumerate(week):
+                if day_number == 0:
+                    ttk.Label(self.calendar_frame, text="").grid(
+                        row=row_index,
+                        column=col_index,
+                        sticky="nsew",
+                        padx=2,
+                        pady=2
+                    )
+                    continue
+
+                current_date = date(
+                    self.current_year,
+                    self.current_month,
+                    day_number
+                )
+
+                bg_color = "#e8f0fe" if current_date == today else "white"
+                fg_color = "#1a73e8" if current_date == today else "black"
+
+                btn = tk.Button(
+                    self.calendar_frame,
+                    text=str(day_number),
+                    bg=bg_color,
+                    fg=fg_color,
+                    relief="solid",
+                    bd=1,
+                    width=6,
+                    height=2,
+                    command=lambda selected=current_date: self.select_date(selected)
+                )
+                btn.grid(
+                    row=row_index,
+                    column=col_index,
+                    sticky="nsew",
+                    padx=2,
+                    pady=2
+                )
+
+        for col in range(7):
+            self.calendar_frame.columnconfigure(col, weight=1)
+
+    def select_date(self, selected_date):
+        self.target_var.set(selected_date.strftime("%Y-%m-%d"))
+        self.destroy()
+
 
 class PaymentFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: PaymentPage, booking_id: int):
@@ -3260,49 +3510,71 @@ class PaymentFormWindow(tk.Toplevel):
             return
 
         self.title("Add Payment")
-        self.geometry("520x620")
-        self.resizable(False, False)
+        self.geometry("720x540")
+        self.minsize(680, 500)
+        self.resizable(True, True)
 
         self.payment_type_var = tk.StringVar(value="Down Payment")
         self.amount_var = tk.StringVar()
         self.payment_method_var = tk.StringVar(value="GCash")
         self.reference_number_var = tk.StringVar()
-        self.payment_date_var = tk.StringVar()
-        self.notes_var = tk.StringVar()
+        self.payment_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
 
         self.build_ui()
         self.update_amount_by_type()
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        # Main container uses grid so buttons stay visible at the bottom
+        outer = ttk.Frame(self, padding=18)
+        outer.pack(fill="both", expand=True)
+
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
 
         ttk.Label(
-            frame,
+            outer,
             text="Add Payment",
             font=("Segoe UI", 18, "bold")
-        ).pack(anchor="w", pady=(0, 15))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
-        info = (
-            f"Booking ID: {self.booking_id}\n"
-            f"Client: {self.summary['client_name'] or ''}\n"
-            f"Package: {self.summary['package_name'] or ''}\n"
-            f"Event Date: {self.summary['event_date'] or ''}\n"
-            f"Total Amount: ₱{float(self.summary['total_amount'] or 0):,.2f}\n"
-            f"Paid Amount: ₱{float(self.summary['net_paid'] or 0):,.2f}\n"
-            f"Balance: ₱{float(self.summary['balance'] or 0):,.2f}"
+        body = ttk.Frame(outer)
+        body.grid(row=1, column=0, sticky="nsew")
+
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        left = ttk.LabelFrame(body, text="Booking Summary", padding=14)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        right = ttk.LabelFrame(body, text="Payment Details", padding=14)
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+        total_amount = float(self.summary["total_amount"] or 0)
+        net_paid = float(self.summary["net_paid"] or 0)
+        balance = float(self.summary["balance"] or 0)
+
+        summary_text = (
+            f"Booking ID: {self.booking_id}\n\n"
+            f"Client:\n{self.summary['client_name'] or ''}\n\n"
+            f"Package:\n{self.summary['package_name'] or ''}\n\n"
+            f"Event Date:\n{self.summary['event_date'] or ''}\n\n"
+            f"Total Amount:\n₱{total_amount:,.2f}\n\n"
+            f"Verified Paid Amount:\n₱{net_paid:,.2f}\n\n"
+            f"Remaining Balance:\n₱{balance:,.2f}\n\n"
+            f"Payment Status:\n{self.summary['payment_status']}"
         )
 
         ttk.Label(
-            frame,
-            text=info,
-            font=("Segoe UI", 10),
-            justify="left"
-        ).pack(anchor="w", pady=(0, 15))
+            left,
+            text=summary_text,
+            justify="left",
+            font=("Segoe UI", 10)
+        ).pack(anchor="nw")
 
-        ttk.Label(frame, text="Payment Type").pack(anchor="w")
+        ttk.Label(right, text="Payment Type").pack(anchor="w")
         payment_combo = ttk.Combobox(
-            frame,
+            right,
             textvariable=self.payment_type_var,
             values=[
                 "Down Payment",
@@ -3314,16 +3586,16 @@ class PaymentFormWindow(tk.Toplevel):
         payment_combo.pack(fill="x", pady=(3, 10))
         payment_combo.bind("<<ComboboxSelected>>", lambda event: self.update_amount_by_type())
 
-        ttk.Label(frame, text="Amount").pack(anchor="w")
+        ttk.Label(right, text="Amount").pack(anchor="w")
         ttk.Entry(
-            frame,
+            right,
             textvariable=self.amount_var,
             state="readonly"
         ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Payment Method").pack(anchor="w")
+        ttk.Label(right, text="Payment Method").pack(anchor="w")
         ttk.Combobox(
-            frame,
+            right,
             textvariable=self.payment_method_var,
             values=[
                 "Cash",
@@ -3335,30 +3607,42 @@ class PaymentFormWindow(tk.Toplevel):
             state="readonly"
         ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Reference Number").pack(anchor="w")
+        ttk.Label(right, text="Reference Number").pack(anchor="w")
         ttk.Entry(
-            frame,
+            right,
             textvariable=self.reference_number_var
         ).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(frame, text="Payment Date").pack(anchor="w")
+        ttk.Label(right, text="Payment Date").pack(anchor="w")
+
+        date_row = ttk.Frame(right)
+        date_row.pack(fill="x", pady=(3, 4))
+
         ttk.Entry(
-            frame,
-            textvariable=self.payment_date_var
-        ).pack(fill="x", pady=(3, 4))
+            date_row,
+            textvariable=self.payment_date_var,
+            state="readonly"
+        ).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            date_row,
+            text="Select Date",
+            command=self.open_payment_date_picker
+        ).pack(side="left", padx=(8, 0))
 
         ttk.Label(
-            frame,
-            text="Recommended date format: YYYY-MM-DD",
+            right,
+            text="Select the actual date the payment was received.",
             font=("Segoe UI", 9)
         ).pack(anchor="w", pady=(0, 10))
 
-        ttk.Label(frame, text="Notes").pack(anchor="w")
-        self.notes_box = tk.Text(frame, height=5, wrap="word")
-        self.notes_box.pack(fill="x", pady=(3, 15))
+        ttk.Label(right, text="Notes").pack(anchor="w")
+        self.notes_box = tk.Text(right, height=4, wrap="word")
+        self.notes_box.pack(fill="both", expand=True, pady=(3, 0))
 
-        button_row = ttk.Frame(frame)
-        button_row.pack(fill="x")
+        # Fixed bottom action buttons
+        button_row = ttk.Frame(outer)
+        button_row.grid(row=2, column=0, sticky="ew", pady=(14, 0))
 
         ttk.Button(
             button_row,
@@ -3372,16 +3656,28 @@ class PaymentFormWindow(tk.Toplevel):
             command=self.save_payment
         ).pack(side="right", padx=(0, 8))
 
+    def open_payment_date_picker(self):
+        SimpleDatePickerWindow(
+            target_var=self.payment_date_var,
+            initial_date=self.payment_date_var.get()
+        )
+
     def update_amount_by_type(self):
         payment_type = self.payment_type_var.get()
 
         total_amount = float(self.summary["total_amount"] or 0)
         balance = float(self.summary["balance"] or 0)
+        net_paid = float(self.summary["net_paid"] or 0)
 
         if payment_type == "Down Payment":
             settings = self.app.settings_service.get_all_settings()
             down_percentage = float(settings.get("down_payment_percentage", "50"))
-            amount = total_amount * (down_percentage / 100)
+            required_down_payment = total_amount * (down_percentage / 100)
+
+            amount = required_down_payment - net_paid
+
+            if amount < 0:
+                amount = 0
 
         elif payment_type == "Full Payment":
             amount = balance
@@ -3410,8 +3706,29 @@ class PaymentFormWindow(tk.Toplevel):
 
         return amount
 
+    def validate_payment_before_save(self):
+        payment_type = self.payment_type_var.get()
+        balance = float(self.summary["balance"] or 0)
+
+        if payment_type == "Full Payment" and balance <= 0:
+            raise ValueError("This booking is already fully paid.")
+
+        if payment_type == "Refund":
+            refundable = self.app.payment_service.get_refundable_amount_by_booking(
+                self.booking_id
+            )
+
+            if refundable <= 0:
+                raise ValueError(
+                    "No refundable amount available. Down payment is non-refundable."
+                )
+
+        if not self.payment_date_var.get().strip():
+            raise ValueError("Payment date is required.")
+
     def save_payment(self):
         try:
+            self.validate_payment_before_save()
             amount = self.get_amount()
 
             self.app.payment_service.add_payment(
