@@ -453,11 +453,7 @@ class ReportsService:
 
         return [dict(row) for row in rows]
 
-    def get_dashboard_today_schedule(self):
-        from datetime import date
-
-        today_text = date.today().strftime("%Y-%m-%d")
-
+    def get_dashboard_schedule_for_range(self, start_date: str, end_date: str):
         with self.db.get_conn() as conn:
             rows = conn.execute(
                 """
@@ -475,16 +471,16 @@ class ReportsService:
                 LEFT JOIN event_types et ON b.event_type_id = et.id
                 LEFT JOIN packages p ON b.package_id = p.id
                 LEFT JOIN booking_statuses bs ON b.status_id = bs.id
-                WHERE b.event_date = ?
-                ORDER BY b.event_time ASC
-                LIMIT 8
+                WHERE b.event_date BETWEEN ? AND ?
+                ORDER BY b.event_date ASC, b.event_time ASC
+                LIMIT 10
                 """,
-                (today_text,)
+                (start_date, end_date)
             ).fetchall()
 
         return [dict(row) for row in rows]
 
-    def get_dashboard_recent_bookings(self):
+    def get_dashboard_recent_bookings(self, start_date: str, end_date: str):
         with self.db.get_conn() as conn:
             rows = conn.execute(
                 """
@@ -499,14 +495,16 @@ class ReportsService:
                 LEFT JOIN clients c ON b.client_id = c.id
                 LEFT JOIN packages p ON b.package_id = p.id
                 LEFT JOIN booking_statuses bs ON b.status_id = bs.id
-                ORDER BY b.id DESC
-                LIMIT 8
-                """
+                WHERE b.event_date BETWEEN ? AND ?
+                ORDER BY b.event_date DESC, b.id DESC
+                LIMIT 10
+                """,
+                (start_date, end_date)
             ).fetchall()
 
         return [dict(row) for row in rows]
 
-    def get_dashboard_payment_queue(self):
+    def get_dashboard_payment_queue(self, start_date: str, end_date: str):
         with self.db.get_conn() as conn:
             rows = conn.execute(
                 """
@@ -525,9 +523,11 @@ class ReportsService:
                 LEFT JOIN clients c ON b.client_id = c.id
                 LEFT JOIN packages p ON b.package_id = p.id
                 WHERE pay.verification_status = 'Pending'
-                ORDER BY pay.id DESC
-                LIMIT 8
-                """
+                  AND pay.payment_date BETWEEN ? AND ?
+                ORDER BY pay.payment_date DESC, pay.id DESC
+                LIMIT 10
+                """,
+                (start_date, end_date)
             ).fetchall()
 
         return [dict(row) for row in rows]
@@ -589,9 +589,9 @@ class ReportsService:
             "payment_trend": self.get_dashboard_verified_payment_trend(start_date, end_date),
             "pie_data": self.get_dashboard_pie_data(start_date, end_date),
 
-            "today_schedule": self.get_dashboard_today_schedule(),
-            "recent_bookings": self.get_dashboard_recent_bookings(),
-            "payment_queue": self.get_dashboard_payment_queue(),
+            "schedule_range": self.get_dashboard_schedule_for_range(start_date, end_date),
+            "recent_bookings": self.get_dashboard_recent_bookings(start_date, end_date),
+            "payment_queue": self.get_dashboard_payment_queue(start_date, end_date),
 
             "upcoming_events": self.get_dashboard_upcoming_events(start_date, end_date),
             "package_performance": self.get_dashboard_package_performance(start_date, end_date),

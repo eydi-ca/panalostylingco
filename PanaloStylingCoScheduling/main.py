@@ -43,6 +43,17 @@ TABLE_BG = "#fbf7ef"
 TABLE_HEADER_BG = "#f1eadc"
 BORDER_SOFT = "#d8cbb6"
 
+MAX_ACTIVE_BOOKINGS_PER_DAY = 1
+
+SCHEDULE_CARD_BG = "#fffaf1"
+SCHEDULE_CELL_BG = "#fffaf1"
+SCHEDULE_CELL_ALT_BG = "#fcf3e8"
+SCHEDULE_BORDER = "#dccfbf"
+SCHEDULE_BOOKED_BG = "#e8c0b6"
+SCHEDULE_AVAILABLE_BG = "#d8dfbd"
+SCHEDULE_LIMITED_BG = "#e9c98e"
+SCHEDULE_TEXT = "#2f2b1f"
+
 SIDEBAR_SHADOW = "#ddd4c4"
 HEADING_FONT = ("Georgia", 22, "bold")
 SUBHEADING_FONT = ("Segoe UI", 11)
@@ -785,8 +796,64 @@ class DashboardPage(ttk.Frame):
             command=self.set_this_year
         ).pack(side="right", padx=(6, 0))
 
-        self.content = ttk.Frame(self)
-        self.content.pack(fill="both", expand=True)
+        self.scroll_canvas = tk.Canvas(
+            self,
+            bg=APP_BG,
+            highlightthickness=0,
+            bd=0
+        )
+        self.scroll_canvas.pack(side="left", fill="both", expand=True)
+
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.scroll_canvas.yview
+        )
+        self.scrollbar.pack(side="right", fill="y")
+
+        self.scroll_canvas.configure(
+            yscrollcommand=self.scrollbar.set
+        )
+
+        self.content = ttk.Frame(self.scroll_canvas)
+
+        self.content_window = self.scroll_canvas.create_window(
+            0,
+            0,
+            window=self.content,
+            anchor="nw"
+        )
+
+        self.content.bind(
+            "<Configure>",
+            lambda event: self.scroll_canvas.configure(
+                scrollregion=self.scroll_canvas.bbox("all")
+            )
+        )
+
+        self.scroll_canvas.bind(
+            "<Configure>",
+            self.resize_dashboard_content
+        )
+
+        self.scroll_canvas.bind_all(
+            "<MouseWheel>",
+            self.on_dashboard_mousewheel
+        )
+
+    def resize_dashboard_content(self, event=None):
+        canvas_width = self.scroll_canvas.winfo_width()
+
+        self.scroll_canvas.itemconfigure(
+            self.content_window,
+            width=canvas_width
+        )
+
+    def on_dashboard_mousewheel(self, event):
+        self.scroll_canvas.yview_scroll(
+            int(-1 * (event.delta / 120)),
+            "units"
+        )
 
     def open_simple_date_picker(self, target_var):
         SimpleDatePickerWindow(
@@ -894,16 +961,16 @@ class DashboardPage(ttk.Frame):
         ).pack(side="left")
 
     def create_table(self, parent, columns, headings, widths=None, height=6):
-        table_container = tk.Frame(
+        table_frame = tk.Frame(
             parent,
             bg=APP_BG,
-            highlightthickness=0,
-            bd=0
+            bd=0,
+            highlightthickness=0
         )
-        table_container.pack(fill="both", expand=False)
+        table_frame.pack(fill="both", expand=True)
 
         table = ttk.Treeview(
-            table_container,
+            table_frame,
             columns=columns,
             show="headings",
             height=height
@@ -912,7 +979,7 @@ class DashboardPage(ttk.Frame):
         for index, column in enumerate(columns):
             table.heading(column, text=headings[index])
             width = widths[index] if widths else 120
-            table.column(column, width=width, anchor="w")
+            table.column(column, width=width, anchor="w", stretch=True)
 
         table.tag_configure(
             "normal",
@@ -920,7 +987,7 @@ class DashboardPage(ttk.Frame):
             foreground=TEXT_DARK
         )
 
-        table.pack(fill="x", expand=False)
+        table.pack(fill="both", expand=True)
 
         return table
 
@@ -1226,7 +1293,7 @@ class DashboardPage(ttk.Frame):
         )
 
         graph_row = ttk.Frame(self.content)
-        graph_row.pack(fill="both", expand=True, pady=(6, 8))
+        graph_row.pack(fill="x", expand=False, pady=(6, 8))
 
         booking_graph = ttk.LabelFrame(graph_row, text="Booking Trend", padding=10)
         booking_graph.pack(side="left", fill="both", expand=True, padx=(0, 5))
@@ -1259,9 +1326,9 @@ class DashboardPage(ttk.Frame):
         )
 
         operational_row = ttk.Frame(self.content)
-        operational_row.pack(fill="both", expand=True, pady=(6, 8))
+        operational_row.pack(fill="x", expand=False, pady=(6, 8))
 
-        today_box = ttk.LabelFrame(operational_row, text="Today's Schedule", padding=10)
+        today_box = ttk.LabelFrame(operational_row, text="Schedule in Selected Range", padding=10)
         today_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
 
         recent_box = ttk.LabelFrame(operational_row, text="Recent Bookings", padding=10)
@@ -1278,7 +1345,7 @@ class DashboardPage(ttk.Frame):
             height=6
         )
 
-        for item in data["today_schedule"]:
+        for item in data["schedule_range"]:
             today_table.insert(
                 "",
                 "end",
@@ -1287,8 +1354,8 @@ class DashboardPage(ttk.Frame):
                     item["client_name"] or "",
                     item["event_type"] or "",
                     item["status"] or ""
-                )
-
+                ),
+                tags = ("normal",)
             )
 
         recent_table = self.create_table(
@@ -1308,14 +1375,15 @@ class DashboardPage(ttk.Frame):
                     item["client_name"] or "",
                     item["package_name"] or "",
                     item["status"] or ""
-                )
+                ),
+                tags=("normal",)
             )
 
         queue_table = self.create_table(
             queue_box,
-            columns=("client", "type", "amount", "method"),
-            headings=("Client", "Type", "Amount", "Method"),
-            widths=(130, 110, 100, 90),
+            columns=("client", "type", "amount", "method", "date"),
+            headings=("Client", "Type", "Amount", "Method", "Date"),
+            widths=(150, 120, 100, 100, 100),
             height=6
         )
 
@@ -1327,8 +1395,10 @@ class DashboardPage(ttk.Frame):
                     item["client_name"] or "",
                     item["payment_type"] or "",
                     self.format_price(item["amount"]),
-                    item["payment_method"] or ""
-                )
+                    item["payment_method"] or "",
+                    item["payment_date"] or ""
+                ),
+                tags=("normal",)
             )
 
         bottom_row = ttk.Frame(self.content)
@@ -1356,7 +1426,8 @@ class DashboardPage(ttk.Frame):
                     item["package_name"] or "",
                     item["booking_count"],
                     self.format_price(item["revenue"])
-                )
+                ),
+                tags = ("normal",)
             )
 
         upcoming_table = self.create_table(
@@ -3777,795 +3848,1364 @@ class SchedulePage(ttk.Frame):
 
         self.app = app
 
-        today = date.today()
-        self.selected_date = today
-        self.current_year = today.year
-        self.current_month = today.month
+        self.today = date.today()
+        self.current_date = self.today
 
-        self.current_view = "month"
-        self.search_var = tk.StringVar()
-
-        self.selected_schedule_id = None
+        self.active_view = "month"
+        self.events = []
 
         self.build_ui()
-        self.render_current_view()
+        self.refresh_page()
 
+    # =========================
+    # UI STRUCTURE
+    # =========================
 
     def build_ui(self):
+        self.configure(style="TFrame")
+
+        # Header
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 12))
 
+        title_group = ttk.Frame(header)
+        title_group.pack(side="left", fill="x", expand=True)
+
         ttk.Label(
-            header,
+            title_group,
             text="Schedule",
-            font=("Segoe UI", 24, "bold")
-        ).pack(side="left")
+            style="Header.TLabel"
+        ).pack(anchor="w")
+
+        ttk.Label(
+            title_group,
+            text="View, manage, reschedule, and cancel event schedules.",
+            style="Subheader.TLabel"
+        ).pack(anchor="w", pady=(2, 0))
 
         ttk.Button(
             header,
-            text="Refresh",
-            command=self.render_current_view
+            text="⟳ Refresh",
+            command=self.refresh_page
         ).pack(side="right")
 
-        nav_bar = ttk.Frame(self)
-        nav_bar.pack(fill="x", pady=(0, 10))
+        # Navigation row
+        nav_row = ttk.Frame(self)
+        nav_row.pack(fill="x", pady=(0, 12))
 
         ttk.Button(
-            nav_bar,
+            nav_row,
+            text="‹ Previous",
+            command=self.go_previous
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(
+            nav_row,
             text="Today",
             command=self.go_today
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(
+            nav_row,
+            text="Next ›",
+            command=self.go_next
         ).pack(side="left")
 
-        ttk.Button(
-            nav_bar,
-            text="‹",
-            width=4,
-            command=self.previous_period
-        ).pack(side="left", padx=(8, 2))
+        self.period_title_var = tk.StringVar()
 
-        ttk.Button(
-            nav_bar,
-            text="›",
-            width=4,
-            command=self.next_period
-        ).pack(side="left", padx=(2, 15))
+        ttk.Label(
+            nav_row,
+            textvariable=self.period_title_var,
+            font=("Georgia", 24, "bold"),
+            foreground=ACCENT_OLIVE,
+            background=APP_BG
+        ).pack(side="left", expand=True)
 
-        self.title_label = ttk.Label(
-            nav_bar,
-            text="",
-            font=("Segoe UI", 16, "bold")
+        # View buttons
+        view_row = ttk.Frame(self)
+        view_row.pack(fill="x", pady=(0, 10))
+
+        self.view_buttons = {}
+
+        for view_key, label in [
+            ("month", "Month"),
+            ("week", "Week"),
+            ("day", "Day"),
+            ("list", "Schedule List")
+        ]:
+            btn = tk.Button(
+                view_row,
+                text=label,
+                command=lambda key=view_key: self.switch_view(key),
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                activebackground="#f1eadc",
+                activeforeground=ACCENT_OLIVE,
+                relief="solid",
+                bd=1,
+                font=("Georgia", 11),
+                padx=18,
+                pady=7,
+                cursor="hand2"
+            )
+            btn.pack(side="left", padx=(0, 6))
+            self.view_buttons[view_key] = btn
+
+        # Main content shell
+        self.body = ttk.Frame(self)
+        self.body.pack(fill="both", expand=True)
+
+        self.main_panel = ttk.Frame(self.body)
+        self.main_panel.pack(side="left", fill="both", expand=True, padx=(0, 14))
+
+        self.side_panel = ttk.Frame(self.body, width=330)
+        self.side_panel.pack(side="right", fill="y")
+        self.side_panel.pack_propagate(False)
+
+    def create_card(self, parent):
+        card = tk.Frame(
+            parent,
+            bg=SCHEDULE_CARD_BG,
+            highlightbackground=SCHEDULE_BORDER,
+            highlightthickness=1,
+            bd=0
         )
-        self.title_label.pack(side="left")
+        return card
 
-        view_buttons = ttk.Frame(nav_bar)
-        view_buttons.pack(side="right")
-
-        ttk.Button(
-            view_buttons,
-            text="Month",
-            command=lambda: self.change_view("month")
-        ).pack(side="left", padx=2)
-
-        ttk.Button(
-            view_buttons,
-            text="Week",
-            command=lambda: self.change_view("week")
-        ).pack(side="left", padx=2)
-
-        ttk.Button(
-            view_buttons,
-            text="Day",
-            command=lambda: self.change_view("day")
-        ).pack(side="left", padx=2)
-
-        ttk.Button(
-            view_buttons,
-            text="List",
-            command=lambda: self.change_view("list")
-        ).pack(side="left", padx=2)
-
-        self.content_frame = ttk.Frame(self)
-        self.content_frame.pack(fill="both", expand=True)
-
-    def clear_content(self):
-        for widget in self.content_frame.winfo_children():
+    def clear_frame(self, frame):
+        for widget in frame.winfo_children():
             widget.destroy()
 
-    def change_view(self, view_name):
-        self.current_view = view_name
+    def refresh_page(self):
+        self.load_schedule_data()
+        self.render_page()
 
-        if view_name == "month":
-            self.current_year = self.selected_date.year
-            self.current_month = self.selected_date.month
+    def render_page(self):
+        self.clear_frame(self.main_panel)
+        self.clear_frame(self.side_panel)
 
-        self.render_current_view()
+        self.update_period_title()
+        self.update_view_buttons()
 
-    def render_current_view(self):
-        self.clear_content()
-
-        if self.current_view == "month":
+        if self.active_view == "month":
             self.render_month_view()
-        elif self.current_view == "week":
+        elif self.active_view == "week":
             self.render_week_view()
-        elif self.current_view == "day":
+        elif self.active_view == "day":
             self.render_day_view()
-        elif self.current_view == "list":
-            self.render_list_view()
+        else:
+            self.render_schedule_list_view()
+
+        self.render_side_panel()
+
+    def update_view_buttons(self):
+        for key, button in self.view_buttons.items():
+            if key == self.active_view:
+                button.configure(
+                    fg=ACCENT_OLIVE,
+                    bg=SIDEBAR_ACTIVE_BG,
+                    font=("Georgia", 11, "bold")
+                )
+            else:
+                button.configure(
+                    fg=TEXT_MUTED,
+                    bg=SCHEDULE_CARD_BG,
+                    font=("Georgia", 11)
+                )
+
+    # =========================
+    # NAVIGATION
+    # =========================
+
+    def switch_view(self, view_key):
+        self.active_view = view_key
+        self.refresh_page()
 
     def go_today(self):
-        today = date.today()
-        self.selected_date = today
-        self.current_year = today.year
-        self.current_month = today.month
-        self.render_current_view()
+        self.current_date = self.today
+        self.refresh_page()
 
-    def previous_period(self):
-        if self.current_view == "month":
-            self.current_month -= 1
+    def go_previous(self):
+        if self.active_view == "month":
+            year = self.current_date.year
+            month = self.current_date.month
 
-            if self.current_month == 0:
-                self.current_month = 12
-                self.current_year -= 1
+            if month == 1:
+                self.current_date = date(year - 1, 12, 1)
+            else:
+                self.current_date = date(year, month - 1, 1)
 
-            self.selected_date = date(self.current_year, self.current_month, 1)
+        elif self.active_view == "week":
+            self.current_date = self.current_date - timedelta(days=7)
 
-        elif self.current_view == "week":
-            self.selected_date -= timedelta(days=7)
+        elif self.active_view == "day":
+            self.current_date = self.current_date - timedelta(days=1)
 
-        elif self.current_view == "day":
-            self.selected_date -= timedelta(days=1)
+        else:
+            self.current_date = self.current_date - timedelta(days=30)
 
-        elif self.current_view == "list":
-            self.selected_date -= timedelta(days=30)
+        self.refresh_page()
 
-        self.render_current_view()
+    def go_next(self):
+        if self.active_view == "month":
+            year = self.current_date.year
+            month = self.current_date.month
 
-    def next_period(self):
-        if self.current_view == "month":
-            self.current_month += 1
+            if month == 12:
+                self.current_date = date(year + 1, 1, 1)
+            else:
+                self.current_date = date(year, month + 1, 1)
 
-            if self.current_month == 13:
-                self.current_month = 1
-                self.current_year += 1
+        elif self.active_view == "week":
+            self.current_date = self.current_date + timedelta(days=7)
 
-            self.selected_date = date(self.current_year, self.current_month, 1)
+        elif self.active_view == "day":
+            self.current_date = self.current_date + timedelta(days=1)
 
-        elif self.current_view == "week":
-            self.selected_date += timedelta(days=7)
+        else:
+            self.current_date = self.current_date + timedelta(days=30)
 
-        elif self.current_view == "day":
-            self.selected_date += timedelta(days=1)
+        self.refresh_page()
 
-        elif self.current_view == "list":
-            self.selected_date += timedelta(days=30)
+    def update_period_title(self):
+        if self.active_view == "month":
+            title = self.current_date.strftime("%B %Y")
 
-        self.render_current_view()
+        elif self.active_view == "week":
+            start, end = self.get_week_start_end()
+            title = f"{start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}"
 
-    def parse_date(self, date_text):
+        elif self.active_view == "day":
+            title = self.current_date.strftime("%B %d, %Y")
+
+        else:
+            start, end = self.get_month_start_end()
+            title = f"Schedules: {start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}"
+
+        self.period_title_var.set(title)
+
+    # =========================
+    # DATE RANGE HELPERS
+    # =========================
+
+    def get_month_start_end(self):
+        first_day = date(self.current_date.year, self.current_date.month, 1)
+        last_day = date(
+            self.current_date.year,
+            self.current_date.month,
+            calendar.monthrange(self.current_date.year, self.current_date.month)[1]
+        )
+
+        return first_day, last_day
+
+    def get_week_start_end(self):
+        # Monday start
+        start = self.current_date - timedelta(days=self.current_date.weekday())
+        end = start + timedelta(days=6)
+
+        return start, end
+
+    def get_current_range(self):
+        if self.active_view == "month":
+            return self.get_month_start_end()
+
+        if self.active_view == "week":
+            return self.get_week_start_end()
+
+        if self.active_view == "day":
+            return self.current_date, self.current_date
+
+        return self.get_month_start_end()
+
+    # =========================
+    # DATABASE
+    # =========================
+
+    def load_schedule_data(self):
+        start_date, end_date = self.get_current_range()
+
+        start_text = start_date.strftime("%Y-%m-%d")
+        end_text = end_date.strftime("%Y-%m-%d")
+
         try:
-            return datetime.strptime(date_text, "%Y-%m-%d").date()
-        except Exception:
-            return None
+            with self.app.db.get_conn() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        b.id,
+                        b.event_date,
+                        b.event_time,
+                        b.event_location,
+                        b.guest_count,
+                        b.theme_motif,
+                        b.total_amount,
+                        c.full_name AS client_name,
+                        et.name AS event_type,
+                        p.package_name,
+                        bs.name AS status
+                    FROM bookings b
+                    LEFT JOIN clients c ON b.client_id = c.id
+                    LEFT JOIN event_types et ON b.event_type_id = et.id
+                    LEFT JOIN packages p ON b.package_id = p.id
+                    LEFT JOIN booking_statuses bs ON b.status_id = bs.id
+                    WHERE b.event_date BETWEEN ? AND ?
+                    ORDER BY b.event_date ASC, b.event_time ASC
+                    """,
+                    (start_text, end_text)
+                ).fetchall()
 
-    def format_schedule_text(self, schedule):
-        event_time = schedule["event_time"] or "No time"
-        client = schedule["client_name"] or "Client"
-        return f"{event_time} - {client}"
+            self.events = [dict(row) for row in rows]
 
-    def get_schedule_colors(self, schedule):
-        status = (schedule["status"] or "").lower()
+        except Exception as e:
+            self.events = []
+            messagebox.showerror("Schedule Error", f"Unable to load schedules: {e}")
 
-        if status == "cancelled":
-            return "#f8d7da", "#842029"
+    def get_events_by_date(self):
+        grouped = {}
 
-        if status == "completed":
-            return "#d1e7dd", "#0f5132"
+        for event in self.events:
+            event_date = event["event_date"]
 
-        if status == "booked":
-            return "#dbeafe", "#1d4ed8"
+            if event_date not in grouped:
+                grouped[event_date] = []
 
-        return "#e8f0fe", "#1a73e8"
+            grouped[event_date].append(event)
 
-    def get_week_dates(self):
-        start = self.selected_date - timedelta(days=(self.selected_date.weekday() + 1) % 7)
-        return [start + timedelta(days=i) for i in range(7)]
+        return grouped
 
+    def get_cancelled_status_id(self):
+        with self.app.db.get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM booking_statuses
+                WHERE LOWER(name) = 'cancelled'
+                LIMIT 1
+                """
+            ).fetchone()
+
+            if row:
+                return row["id"]
+
+            cursor = conn.execute(
+                """
+                INSERT INTO booking_statuses (name)
+                VALUES ('Cancelled')
+                """
+            )
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def count_active_bookings_on_date(self, event_date, exclude_booking_id=None):
+        query = """
+            SELECT COUNT(*) AS count
+            FROM bookings b
+            LEFT JOIN booking_statuses bs ON b.status_id = bs.id
+            WHERE b.event_date = ?
+              AND LOWER(COALESCE(bs.name, '')) != 'cancelled'
+        """
+
+        params = [event_date]
+
+        if exclude_booking_id:
+            query += " AND b.id != ?"
+            params.append(exclude_booking_id)
+
+        with self.app.db.get_conn() as conn:
+            row = conn.execute(query, params).fetchone()
+
+        return int(row["count"] or 0)
+
+    def get_booked_dates_for_month(self, year, month, exclude_booking_id=None):
+        first_day = date(year, month, 1)
+        last_day = date(
+            year,
+            month,
+            calendar.monthrange(year, month)[1]
+        )
+
+        query = """
+            SELECT
+                b.id,
+                b.event_date,
+                bs.name AS status
+            FROM bookings b
+            LEFT JOIN booking_statuses bs ON b.status_id = bs.id
+            WHERE b.event_date BETWEEN ? AND ?
+              AND LOWER(COALESCE(bs.name, '')) != 'cancelled'
+        """
+
+        params = [
+            first_day.strftime("%Y-%m-%d"),
+            last_day.strftime("%Y-%m-%d")
+        ]
+
+        if exclude_booking_id:
+            query += " AND b.id != ?"
+            params.append(exclude_booking_id)
+
+        with self.app.db.get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        booked_dates = {}
+
+        for row in rows:
+            event_date = row["event_date"]
+
+            if event_date not in booked_dates:
+                booked_dates[event_date] = 0
+
+            booked_dates[event_date] += 1
+
+        return booked_dates
+
+    def update_booking_schedule(self, booking_id, new_date, new_time):
+        with self.app.db.get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE bookings
+                SET event_date = ?,
+                    event_time = ?
+                WHERE id = ?
+                """,
+                (new_date, new_time, booking_id)
+            )
+            conn.commit()
+
+    def cancel_booking_schedule(self, booking_id):
+        cancelled_status_id = self.get_cancelled_status_id()
+
+        with self.app.db.get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE bookings
+                SET status_id = ?
+                WHERE id = ?
+                """,
+                (cancelled_status_id, booking_id)
+            )
+            conn.commit()
+
+    # =========================
+    # STATUS HELPERS
+    # =========================
+
+    def get_date_status(self, events):
+        if not events:
+            return "available"
+
+        active_events = [
+            event for event in events
+            if str(event.get("status", "")).lower() != "cancelled"
+        ]
+
+        if len(active_events) == 0:
+            return "available"
+
+        if len(active_events) >= MAX_ACTIVE_BOOKINGS_PER_DAY:
+            return "booked"
+
+        return "limited"
+
+    def get_status_colors(self, status):
+        if status == "available":
+            return SCHEDULE_AVAILABLE_BG, ACCENT_OLIVE
+
+        if status == "limited":
+            return SCHEDULE_LIMITED_BG, "#6a4a11"
+
+        return SCHEDULE_BOOKED_BG, "#6c2c22"
+
+    # =========================
+    # MONTH VIEW
+    # =========================
 
     def render_month_view(self):
-        month_name = calendar.month_name[self.current_month]
-        self.title_label.config(text=f"{month_name} {self.current_year}")
+        grouped_events = self.get_events_by_date()
 
-        calendar_frame = ttk.Frame(self.content_frame)
-        calendar_frame.pack(fill="both", expand=True)
+        card = self.create_card(self.main_panel)
+        card.pack(fill="both", expand=True)
 
-        schedules = self.app.schedule_service.list_schedules_for_month(
-            self.current_year,
-            self.current_month
-        )
+        calendar_frame = tk.Frame(card, bg=SCHEDULE_CARD_BG)
+        calendar_frame.pack(fill="both", expand=True, padx=14, pady=14)
 
-        schedules_by_date = {}
+        weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-        for sched in schedules:
-            event_date = sched["event_date"]
-
-            if event_date:
-                schedules_by_date.setdefault(event_date, []).append(sched)
-
-        day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-
-        for col, day_name in enumerate(day_names):
-            ttk.Label(
+        for col, day_name in enumerate(weekdays):
+            tk.Label(
                 calendar_frame,
                 text=day_name,
-                anchor="center",
-                font=("Segoe UI", 10, "bold")
-            ).grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_DARK,
+                font=("Georgia", 11, "bold")
+            ).grid(row=0, column=col, sticky="nsew", pady=(0, 8))
 
-        cal = calendar.Calendar(firstweekday=6)
-        month_days = cal.monthdayscalendar(self.current_year, self.current_month)
+        for col in range(7):
+            calendar_frame.grid_columnconfigure(col, weight=1, uniform="calendar_col")
 
-        today = date.today()
+        for row in range(1, 7):
+            calendar_frame.grid_rowconfigure(row, weight=1, uniform="calendar_row")
 
-        for row_index, week in enumerate(month_days, start=1):
-            for col_index, day_number in enumerate(week):
-                cell_bg = "white"
+        first_weekday, days_in_month = calendar.monthrange(
+            self.current_date.year,
+            self.current_date.month
+        )
 
+        start_col = (first_weekday + 1) % 7
+        day_number = 1
+
+        for week in range(6):
+            for col in range(7):
                 cell = tk.Frame(
                     calendar_frame,
-                    bg=cell_bg,
-                    relief="solid",
-                    bd=1,
-                    height=115
+                    bg=SCHEDULE_CELL_BG,
+                    highlightbackground=SCHEDULE_BORDER,
+                    highlightthickness=1,
+                    bd=0
                 )
                 cell.grid(
-                    row=row_index,
-                    column=col_index,
-                    sticky="nsew",
-                    padx=1,
-                    pady=1
+                    row=week + 1,
+                    column=col,
+                    sticky="nsew"
                 )
-                cell.grid_propagate(False)
 
-                if day_number == 0:
+                if week == 0 and col < start_col:
                     continue
 
-                date_key = f"{self.current_year:04d}-{self.current_month:02d}-{day_number:02d}"
-                cell_date = date(self.current_year, self.current_month, day_number)
+                if day_number > days_in_month:
+                    continue
 
-                if cell_date == today:
-                    cell.config(bg="#e8f0fe")
-                    cell_bg = "#e8f0fe"
-
-                day_label = tk.Label(
-                    cell,
-                    text=str(day_number),
-                    bg=cell_bg,
-                    fg="#1a73e8" if cell_date == today else "black",
-                    anchor="w",
-                    font=("Segoe UI", 10, "bold"),
-                    cursor="hand2"
+                current_day = date(
+                    self.current_date.year,
+                    self.current_date.month,
+                    day_number
                 )
-                day_label.pack(anchor="nw", padx=5, pady=(4, 2))
+                date_text = current_day.strftime("%Y-%m-%d")
+                events = grouped_events.get(date_text, [])
+                status = self.get_date_status(events)
 
-                day_label.bind(
-                    "<Button-1>",
-                    lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
+                self.populate_month_cell(
+                    cell=cell,
+                    current_day=current_day,
+                    date_text=date_text,
+                    events=events,
+                    status=status
                 )
 
-                cell.bind(
-                    "<Button-1>",
-                    lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
-                )
+                day_number += 1
 
-                day_schedules = schedules_by_date.get(date_key, [])
+        self.render_legend(card)
 
-                for sched in day_schedules[:3]:
-                    bg_color, fg_color = self.get_schedule_colors(sched)
+    def populate_month_cell(self, cell, current_day, date_text, events, status):
+        tk.Label(
+            cell,
+            text=str(current_day.day),
+            bg=SCHEDULE_CELL_BG,
+            fg=TEXT_DARK,
+            font=("Segoe UI", 10, "bold" if current_day == self.today else "normal"),
+            anchor="nw"
+        ).pack(anchor="nw", padx=8, pady=6)
 
-                    event_label = tk.Label(
-                        cell,
-                        text=self.format_schedule_text(sched),
-                        bg=bg_color,
-                        fg=fg_color,
-                        anchor="w",
-                        font=("Segoe UI", 8),
-                        cursor="hand2"
-                    )
-                    event_label.pack(fill="x", padx=4, pady=1)
+        active_events = [
+            event for event in events
+            if str(event.get("status", "")).lower() != "cancelled"
+        ]
 
-                    event_label.bind(
-                        "<Button-1>",
-                        lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
-                    )
+        cancelled_events = [
+            event for event in events
+            if str(event.get("status", "")).lower() == "cancelled"
+        ]
 
-                if len(day_schedules) > 3:
-                    more_label = tk.Label(
-                        cell,
-                        text=f"+{len(day_schedules) - 3} more",
-                        bg=cell_bg,
-                        fg="#555555",
-                        anchor="w",
-                        font=("Segoe UI", 8),
-                        cursor="hand2"
-                    )
-                    more_label.pack(fill="x", padx=4, pady=1)
+        if active_events:
+            badge_bg, badge_fg = self.get_status_colors(status)
+            label_text = "Booked" if len(active_events) == 1 else f"{len(active_events)} Bookings"
 
-                    more_label.bind(
-                        "<Button-1>",
-                        lambda event, selected_date=cell_date: self.open_day_from_date(selected_date)
-                    )
+            badge = tk.Label(
+                cell,
+                text=label_text,
+                bg=badge_bg,
+                fg=badge_fg,
+                font=("Segoe UI", 8),
+                padx=7,
+                pady=3,
+                cursor="hand2"
+            )
+            badge.pack(anchor="center", pady=(8, 0))
 
-        for col in range(7):
-            calendar_frame.columnconfigure(col, weight=1)
+            badge.bind(
+                "<Button-1>",
+                lambda event, date_value=date_text: self.open_day_details(date_value)
+            )
 
-        for row in range(7):
-            calendar_frame.rowconfigure(row, weight=1)
+        if cancelled_events:
+            cancelled = tk.Label(
+                cell,
+                text=f"{len(cancelled_events)} Cancelled",
+                bg="#efc0c0",
+                fg="#7a1f1f",
+                font=("Segoe UI", 8),
+                padx=7,
+                pady=3,
+                cursor="hand2"
+            )
+            cancelled.pack(anchor="center", pady=(4, 0))
 
-    def render_week_view(self):
-        week_dates = self.get_week_dates()
-        start_date = week_dates[0]
-        end_date = week_dates[-1]
+            cancelled.bind(
+                "<Button-1>",
+                lambda event, date_value=date_text: self.open_day_details(date_value)
+            )
 
-        self.title_label.config(
-            text=f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+        cell.bind(
+            "<Button-1>",
+            lambda event, date_value=date_text: self.open_day_details(date_value)
         )
 
-        week_frame = ttk.Frame(self.content_frame)
-        week_frame.pack(fill="both", expand=True)
+    def render_legend(self, parent):
+        legend = tk.Frame(parent, bg=SCHEDULE_CARD_BG)
+        legend.pack(fill="x", padx=18, pady=(0, 14))
 
-        for col, day in enumerate(week_dates):
-            day_header = tk.Frame(
-                week_frame,
-                bg="#f8f9fa",
-                relief="solid",
-                bd=1
-            )
-            day_header.grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+        items = [
+            ("Available", SCHEDULE_AVAILABLE_BG),
+            ("Booked / Fully Booked", SCHEDULE_BOOKED_BG),
+            ("Limited Availability", SCHEDULE_LIMITED_BG),
+            ("Cancelled", "#efc0c0"),
+        ]
+
+        for label_text, color in items:
+            item = tk.Frame(legend, bg=SCHEDULE_CARD_BG)
+            item.pack(side="left", padx=(0, 24))
 
             tk.Label(
-                day_header,
-                text=day.strftime("%a\n%b %d"),
-                bg="#f8f9fa",
-                font=("Segoe UI", 10, "bold"),
-                cursor="hand2"
-            ).pack(fill="x", pady=6)
+                item,
+                text="●",
+                bg=SCHEDULE_CARD_BG,
+                fg=color,
+                font=("Segoe UI", 13)
+            ).pack(side="left")
 
-            day_body = tk.Frame(
-                week_frame,
-                bg="white",
-                relief="solid",
-                bd=1
-            )
-            day_body.grid(row=1, column=col, sticky="nsew", padx=1, pady=1)
+            tk.Label(
+                item,
+                text=label_text,
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 9)
+            ).pack(side="left", padx=(5, 0))
 
-            day_key = day.strftime("%Y-%m-%d")
-            schedules = self.app.schedule_service.list_schedules_for_date(day_key)
+    # =========================
+    # WEEK VIEW
+    # =========================
 
-            day_body.bind(
-                "<Button-1>",
-                lambda event, selected_date=day: self.open_day_from_date(selected_date)
-            )
+    def render_week_view(self):
+        start, end = self.get_week_start_end()
+        grouped_events = self.get_events_by_date()
 
-            for sched in schedules:
-                bg_color, fg_color = self.get_schedule_colors(sched)
+        card = self.create_card(self.main_panel)
+        card.pack(fill="both", expand=True)
 
-                event_card = tk.Label(
-                    day_body,
-                    text=self.format_schedule_text(sched),
-                    bg=bg_color,
-                    fg=fg_color,
-                    anchor="w",
-                    justify="left",
-                    wraplength=120,
-                    font=("Segoe UI", 8),
-                    cursor="hand2"
-                )
+        week_frame = tk.Frame(card, bg=SCHEDULE_CARD_BG)
+        week_frame.pack(fill="both", expand=True, padx=14, pady=14)
 
         for col in range(7):
-            week_frame.columnconfigure(col, weight=1)
+            week_frame.grid_columnconfigure(col, weight=1, uniform="week_col")
 
-        week_frame.rowconfigure(1, weight=1)
+        for col in range(7):
+            day_date = start + timedelta(days=col)
+            date_text = day_date.strftime("%Y-%m-%d")
+            events = grouped_events.get(date_text, [])
+
+            day_card = tk.Frame(
+                week_frame,
+                bg=SCHEDULE_CELL_BG,
+                highlightbackground=SCHEDULE_BORDER,
+                highlightthickness=1,
+                bd=0
+            )
+            day_card.grid(row=0, column=col, sticky="nsew", padx=3, pady=3)
+
+            tk.Label(
+                day_card,
+                text=day_date.strftime("%a"),
+                bg=SCHEDULE_CELL_BG,
+                fg=ACCENT_OLIVE,
+                font=("Georgia", 12, "bold")
+            ).pack(anchor="w", padx=10, pady=(10, 0))
+
+            tk.Label(
+                day_card,
+                text=day_date.strftime("%b %d"),
+                bg=SCHEDULE_CELL_BG,
+                fg=TEXT_DARK,
+                font=("Segoe UI", 10)
+            ).pack(anchor="w", padx=10, pady=(0, 10))
+
+            if not events:
+                tk.Label(
+                    day_card,
+                    text="Available",
+                    bg=SCHEDULE_CELL_BG,
+                    fg=TEXT_MUTED,
+                    font=("Segoe UI", 9)
+                ).pack(anchor="w", padx=10, pady=6)
+            else:
+                for event in events:
+                    self.create_event_chip(day_card, event)
+
+    # =========================
+    # DAY VIEW
+    # =========================
 
     def render_day_view(self):
-        selected_text = self.selected_date.strftime("%A, %B %d, %Y")
-        self.title_label.config(text=selected_text)
+        date_text = self.current_date.strftime("%Y-%m-%d")
+        events = [
+            event for event in self.events
+            if event["event_date"] == date_text
+        ]
 
-        self.selected_schedule_id = None
+        card = self.create_card(self.main_panel)
+        card.pack(fill="both", expand=True)
 
-        main = ttk.Frame(self.content_frame)
-        main.pack(fill="both", expand=True)
+        container = tk.Frame(card, bg=SCHEDULE_CARD_BG)
+        container.pack(fill="both", expand=True, padx=18, pady=18)
 
-        left = ttk.Frame(main)
-        left.pack(side="left", fill="both", expand=True)
+        tk.Label(
+            container,
+            text=self.current_date.strftime("%A, %B %d, %Y"),
+            bg=SCHEDULE_CARD_BG,
+            fg=ACCENT_OLIVE,
+            font=("Georgia", 18, "bold")
+        ).pack(anchor="w", pady=(0, 14))
 
-        right = ttk.Frame(main, width=250)
-        right.pack(side="right", fill="y", padx=(15, 0))
-        right.pack_propagate(False)
-
-        date_key = self.selected_date.strftime("%Y-%m-%d")
-        schedules = self.app.schedule_service.list_schedules_for_date(date_key)
-
-        columns = (
-            "id",
-            "time",
-            "client",
-            "event_type",
-            "package",
-            "location",
-            "status"
-        )
-
-        self.day_table = ttk.Treeview(
-            left,
-            columns=columns,
-            show="headings",
-            height=16
-        )
-
-        self.day_table.tag_configure("cancelled", background="#f8d7da", foreground="#842029")
-        self.day_table.tag_configure("completed", background="#d1e7dd", foreground="#0f5132")
-        self.day_table.tag_configure("normal", background="white", foreground="black")
-
-        self.day_table.heading("id", text="ID")
-        self.day_table.heading("time", text="Time")
-        self.day_table.heading("client", text="Client")
-        self.day_table.heading("event_type", text="Event Type")
-        self.day_table.heading("package", text="Package")
-        self.day_table.heading("location", text="Location")
-        self.day_table.heading("status", text="Status")
-
-        self.day_table.column("id", width=50)
-        self.day_table.column("time", width=90)
-        self.day_table.column("client", width=150)
-        self.day_table.column("event_type", width=130)
-        self.day_table.column("package", width=180)
-        self.day_table.column("location", width=200)
-        self.day_table.column("status", width=110)
-
-        self.day_table.pack(fill="both", expand=True)
-
-        for sched in schedules:
-            status_text = (sched["status"] or "").lower()
-
-            if status_text == "cancelled":
-                tag = "cancelled"
-            elif status_text == "completed":
-                tag = "completed"
-            else:
-                tag = "normal"
-
-            self.day_table.insert(
-                "",
-                "end",
-                values=(
-                    sched["id"],
-                    sched["event_time"] or "",
-                    sched["client_name"] or "",
-                    sched["event_type"] or "",
-                    sched["package_name"] or "",
-                    sched["event_location"] or "",
-                    sched["status"] or ""
-                ),
-                tags=(tag,)
-            )
-
-        self.day_table.bind("<<TreeviewSelect>>", self.handle_day_selection)
-
-        ttk.Label(
-            right,
-            text="Actions",
-            style="Section.TLabel"
-        ).pack(anchor="w", pady=(0, 10))
-
-        ttk.Button(
-            right,
-            text="View Details",
-            command=self.view_selected_details
-        ).pack(fill="x", pady=4)
-
-        ttk.Button(
-            right,
-            text="Reschedule",
-            command=self.open_reschedule_window
-        ).pack(fill="x", pady=4)
-
-        ttk.Button(
-            right,
-            text="Cancel Schedule",
-            command=self.cancel_selected_schedule
-        ).pack(fill="x", pady=4)
-
-        ttk.Button(
-            right,
-            text="Refresh Day",
-            command=self.render_current_view
-        ).pack(fill="x", pady=(20, 4))
-
-        ttk.Label(
-            right,
-            text="Tip: Select a schedule from the table first.",
-            wraplength=220,
-            font=("Segoe UI", 9)
-        ).pack(anchor="w", pady=(20, 0))
-
-    def handle_day_selection(self, event=None):
-        selected = self.day_table.selection()
-
-        if not selected:
-            self.selected_schedule_id = None
+        if not events:
+            tk.Label(
+                container,
+                text="No bookings scheduled for this day.",
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 11)
+            ).pack(anchor="w")
             return
 
-        values = self.day_table.item(selected[0], "values")
-        self.selected_schedule_id = int(values[0])
+        for event in events:
+            self.create_day_event_card(container, event)
 
-    def render_list_view(self):
-        self.title_label.config(text="All Schedules")
+    def create_day_event_card(self, parent, event):
+        card = tk.Frame(
+            parent,
+            bg="#fffdf7",
+            highlightbackground=SCHEDULE_BORDER,
+            highlightthickness=1,
+            bd=0
+        )
+        card.pack(fill="x", pady=(0, 10))
 
-        top = ttk.Frame(self.content_frame)
-        top.pack(fill="x", pady=(0, 10))
+        top = tk.Frame(card, bg="#fffdf7")
+        top.pack(fill="x", padx=14, pady=(12, 6))
 
-        ttk.Label(top, text="Search").pack(side="left")
-
-        ttk.Entry(
+        tk.Label(
             top,
-            textvariable=self.search_var,
-            width=35
-        ).pack(side="left", padx=(8, 8))
+            text=event["event_type"] or "Event",
+            bg="#fffdf7",
+            fg=TEXT_DARK,
+            font=("Segoe UI", 12, "bold")
+        ).pack(side="left")
+
+        tk.Label(
+            top,
+            text=event["status"] or "",
+            bg=SIDEBAR_ACTIVE_BG,
+            fg=ACCENT_OLIVE,
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=3
+        ).pack(side="right")
+
+        details = (
+            f"Client: {event['client_name'] or ''}\n"
+            f"Package: {event['package_name'] or ''}\n"
+            f"Time: {event['event_time'] or ''}\n"
+            f"Location: {event['event_location'] or ''}"
+        )
+
+        tk.Label(
+            card,
+            text=details,
+            bg="#fffdf7",
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 10),
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+
+        actions = tk.Frame(card, bg="#fffdf7")
+        actions.pack(fill="x", padx=14, pady=(0, 12))
 
         ttk.Button(
-            top,
-            text="Search",
-            command=self.search_list_view
+            actions,
+            text="View Details",
+            command=lambda: self.open_booking_details(event)
         ).pack(side="left")
 
         ttk.Button(
-            top,
-            text="Clear",
-            command=self.clear_list_search
+            actions,
+            text="Reschedule",
+            command=lambda: self.open_reschedule_window(event)
         ).pack(side="left", padx=(8, 0))
 
+        ttk.Button(
+            actions,
+            text="Cancel Schedule",
+            command=lambda: self.confirm_cancel_schedule(event)
+        ).pack(side="left", padx=(8, 0))
+
+    # =========================
+    # LIST VIEW
+    # =========================
+
+    def render_schedule_list_view(self):
+        card = self.create_card(self.main_panel)
+        card.pack(fill="both", expand=True)
+
+        container = tk.Frame(card, bg=SCHEDULE_CARD_BG)
+        container.pack(fill="both", expand=True, padx=14, pady=14)
+
         columns = (
-            "id",
             "date",
             "time",
             "client",
-            "event_type",
+            "event",
             "package",
-            "location",
             "status"
         )
 
-        self.list_table = ttk.Treeview(
-            self.content_frame,
+        table = ttk.Treeview(
+            container,
             columns=columns,
             show="headings",
-            height=16
+            height=18
         )
 
-        self.list_table.heading("id", text="ID")
-        self.list_table.heading("date", text="Date")
-        self.list_table.heading("time", text="Time")
-        self.list_table.heading("client", text="Client")
-        self.list_table.heading("event_type", text="Event Type")
-        self.list_table.heading("package", text="Package")
-        self.list_table.heading("location", text="Location")
-        self.list_table.heading("status", text="Status")
+        headings = {
+            "date": "Date",
+            "time": "Time",
+            "client": "Client",
+            "event": "Event",
+            "package": "Package",
+            "status": "Status"
+        }
 
-        self.list_table.column("id", width=50)
-        self.list_table.column("date", width=100)
-        self.list_table.column("time", width=90)
-        self.list_table.column("client", width=150)
-        self.list_table.column("event_type", width=130)
-        self.list_table.column("package", width=190)
-        self.list_table.column("location", width=180)
-        self.list_table.column("status", width=110)
+        widths = {
+            "date": 110,
+            "time": 90,
+            "client": 170,
+            "event": 150,
+            "package": 220,
+            "status": 110
+        }
 
-        self.list_table.pack(fill="both", expand=True)
+        for column in columns:
+            table.heading(column, text=headings[column])
+            table.column(column, width=widths[column], anchor="w")
 
-        action_bar = ttk.Frame(self.content_frame)
-        action_bar.pack(fill="x", pady=(10, 0))
+        table.tag_configure("normal", background=APP_BG, foreground=TEXT_DARK)
+        table.pack(fill="both", expand=True)
+
+        for event in self.events:
+            table.insert(
+                "",
+                "end",
+                iid=str(event["id"]),
+                values=(
+                    event["event_date"] or "",
+                    event["event_time"] or "",
+                    event["client_name"] or "",
+                    event["event_type"] or "",
+                    event["package_name"] or "",
+                    event["status"] or ""
+                ),
+                tags=("normal",)
+            )
+
+        action_row = tk.Frame(container, bg=SCHEDULE_CARD_BG)
+        action_row.pack(fill="x", pady=(12, 0))
 
         ttk.Button(
-            action_bar,
-            text="Open Selected Day",
-            command=self.open_selected_day_from_list
+            action_row,
+            text="View Details",
+            command=lambda: self.handle_table_action(table, "view")
         ).pack(side="left")
 
         ttk.Button(
-            action_bar,
-            text="View Details",
-            command=self.view_selected_details_from_list
+            action_row,
+            text="Reschedule",
+            command=lambda: self.handle_table_action(table, "reschedule")
         ).pack(side="left", padx=(8, 0))
 
         ttk.Button(
-            action_bar,
-            text="Refresh",
-            command=self.render_current_view
-        ).pack(side="right")
+            action_row,
+            text="Cancel Schedule",
+            command=lambda: self.handle_table_action(table, "cancel")
+        ).pack(side="left", padx=(8, 0))
 
-        self.load_list_table()
+    def handle_table_action(self, table, action):
+        selected = table.selection()
 
-    def load_list_table(self, search_text=""):
-        for item in self.list_table.get_children():
-            self.list_table.delete(item)
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a schedule first.")
+            return
 
-        schedules = self.app.schedule_service.list_all_schedules(search_text)
+        booking_id = int(selected[0])
+        event = self.get_event_by_id(booking_id)
 
-        for sched in schedules:
-            self.list_table.insert(
-                "",
-                "end",
-                values=(
-                    sched["id"],
-                    sched["event_date"] or "",
-                    sched["event_time"] or "",
-                    sched["client_name"] or "",
-                    sched["event_type"] or "",
-                    sched["package_name"] or "",
-                    sched["event_location"] or "",
-                    sched["status"] or ""
-                )
+        if not event:
+            messagebox.showerror("Error", "Schedule record not found.")
+            return
+
+        if action == "view":
+            self.open_booking_details(event)
+        elif action == "reschedule":
+            self.open_reschedule_window(event)
+        elif action == "cancel":
+            self.confirm_cancel_schedule(event)
+
+    # =========================
+    # EVENT WIDGETS
+    # =========================
+
+    def create_event_chip(self, parent, event):
+        status = str(event.get("status", "")).lower()
+
+        if status == "cancelled":
+            bg_color = "#efc0c0"
+            fg_color = "#7a1f1f"
+        else:
+            bg_color = SIDEBAR_ACTIVE_BG
+            fg_color = ACCENT_OLIVE
+
+        chip = tk.Frame(
+            parent,
+            bg=bg_color,
+            cursor="hand2"
+        )
+        chip.pack(fill="x", padx=8, pady=4)
+
+        tk.Label(
+            chip,
+            text=event["event_time"] or "",
+            bg=bg_color,
+            fg=fg_color,
+            font=("Segoe UI", 8, "bold")
+        ).pack(anchor="w", padx=8, pady=(5, 0))
+
+        tk.Label(
+            chip,
+            text=event["client_name"] or "Client",
+            bg=bg_color,
+            fg=fg_color,
+            font=("Segoe UI", 8)
+        ).pack(anchor="w", padx=8, pady=(0, 5))
+
+        chip.bind(
+            "<Button-1>",
+            lambda e, event_data=event: self.open_booking_details(event_data)
+        )
+
+    def get_event_by_id(self, booking_id):
+        for event in self.events:
+            if int(event["id"]) == int(booking_id):
+                return event
+
+        return None
+
+    # =========================
+    # SIDE PANEL
+    # =========================
+
+    def render_side_panel(self):
+        self.render_upcoming_bookings()
+        self.render_mini_calendar()
+
+    def render_upcoming_bookings(self):
+        box = self.create_card(self.side_panel)
+        box.pack(fill="x", pady=(0, 14))
+
+        tk.Label(
+            box,
+            text="Upcoming Bookings",
+            bg=SCHEDULE_CARD_BG,
+            fg=ACCENT_OLIVE,
+            font=("Georgia", 13, "bold")
+        ).pack(anchor="w", padx=14, pady=(12, 8))
+
+        upcoming = [
+            event for event in self.events
+            if str(event.get("status", "")).lower() != "cancelled"
+        ][:6]
+
+        if not upcoming:
+            tk.Label(
+                box,
+                text="No upcoming bookings in this view.",
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 9)
+            ).pack(anchor="w", padx=14, pady=(0, 14))
+            return
+
+        for event in upcoming:
+            item = tk.Frame(box, bg=SCHEDULE_CARD_BG, cursor="hand2")
+            item.pack(fill="x", padx=14, pady=6)
+
+            tk.Label(
+                item,
+                text=f"{event['event_date']}  •  {event['event_time'] or ''}",
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 8)
+            ).pack(anchor="w")
+
+            tk.Label(
+                item,
+                text=event["client_name"] or "",
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_DARK,
+                font=("Segoe UI", 9, "bold")
+            ).pack(anchor="w")
+
+            tk.Label(
+                item,
+                text=event["event_type"] or "",
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 8)
+            ).pack(anchor="w")
+
+            item.bind(
+                "<Button-1>",
+                lambda e, event_data=event: self.open_booking_details(event_data)
             )
 
-    def search_list_view(self):
-        self.load_list_table(self.search_var.get())
+    def render_mini_calendar(self):
+        box = self.create_card(self.side_panel)
+        box.pack(fill="x")
 
-    def clear_list_search(self):
-        self.search_var.set("")
-        self.load_list_table()
+        tk.Label(
+            box,
+            text="Mini Calendar",
+            bg=SCHEDULE_CARD_BG,
+            fg=ACCENT_OLIVE,
+            font=("Georgia", 13, "bold")
+        ).pack(anchor="w", padx=14, pady=(12, 8))
 
-    def open_day_from_date(self, selected_date):
-        self.selected_date = selected_date
-        self.current_view = "day"
-        self.render_current_view()
+        mini_title = self.current_date.strftime("%B %Y")
 
-    def open_selected_day_from_list(self):
-        selected = self.list_table.selection()
+        tk.Label(
+            box,
+            text=mini_title,
+            bg=SCHEDULE_CARD_BG,
+            fg=TEXT_DARK,
+            font=("Georgia", 12, "bold")
+        ).pack(pady=(0, 8))
 
-        if not selected:
-            messagebox.showwarning("No Selection", "Please select a schedule first.")
+        grid = tk.Frame(box, bg=SCHEDULE_CARD_BG)
+        grid.pack(padx=18, pady=(0, 16))
+
+        weekdays = ["S", "M", "T", "W", "T", "F", "S"]
+
+        for col, day_name in enumerate(weekdays):
+            tk.Label(
+                grid,
+                text=day_name,
+                bg=SCHEDULE_CARD_BG,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 8),
+                width=4
+            ).grid(row=0, column=col, pady=(0, 5))
+
+        first_day, last_day = self.get_month_start_end()
+        first_weekday, days_in_month = calendar.monthrange(first_day.year, first_day.month)
+        start_col = (first_weekday + 1) % 7
+        grouped = self.get_events_by_date()
+
+        day_number = 1
+
+        for week in range(6):
+            for col in range(7):
+                if week == 0 and col < start_col:
+                    tk.Label(grid, text="", bg=SCHEDULE_CARD_BG, width=4).grid(row=week + 1, column=col)
+                    continue
+
+                if day_number > days_in_month:
+                    tk.Label(grid, text="", bg=SCHEDULE_CARD_BG, width=4).grid(row=week + 1, column=col)
+                    continue
+
+                d = date(first_day.year, first_day.month, day_number)
+                date_text = d.strftime("%Y-%m-%d")
+                events = grouped.get(date_text, [])
+
+                bg = SCHEDULE_CARD_BG
+                fg = TEXT_DARK
+
+                if events:
+                    bg = SCHEDULE_BOOKED_BG
+                    fg = "#6c2c22"
+
+                if d == self.today:
+                    bg = ACCENT_OLIVE
+                    fg = "white"
+
+                label = tk.Label(
+                    grid,
+                    text=str(day_number),
+                    bg=bg,
+                    fg=fg,
+                    font=("Segoe UI", 8, "bold" if events or d == self.today else "normal"),
+                    width=4,
+                    cursor="hand2"
+                )
+                label.grid(row=week + 1, column=col, pady=3)
+
+                label.bind(
+                    "<Button-1>",
+                    lambda e, date_value=date_text: self.open_day_details(date_value)
+                )
+
+                day_number += 1
+
+    # =========================
+    # ACTIONS
+    # =========================
+
+    def open_day_details(self, date_text):
+        events = [
+            event for event in self.events
+            if event["event_date"] == date_text
+        ]
+
+        if not events:
+            messagebox.showinfo("Schedule", f"No booking scheduled on {date_text}.")
             return
 
-        values = self.list_table.item(selected[0], "values")
-        selected_date = self.parse_date(values[1])
-
-        if not selected_date:
-            messagebox.showerror("Error", "Selected schedule has no valid event date.")
-            return
-
-        self.open_day_from_date(selected_date)
-
-    def get_selected_schedule_id_from_list(self):
-        selected = self.list_table.selection()
-
-        if not selected:
-            messagebox.showwarning("No Selection", "Please select a schedule first.")
-            return None
-
-        values = self.list_table.item(selected[0], "values")
-        return int(values[0])
-
-    def view_selected_details_from_list(self):
-        booking_id = self.get_selected_schedule_id_from_list()
-
-        if not booking_id:
-            return
-
-        self.show_schedule_details(booking_id)
-
-    def view_selected_details(self):
-        if not self.selected_schedule_id:
-            messagebox.showwarning("No Selection", "Please select a schedule first.")
-            return
-
-        self.show_schedule_details(self.selected_schedule_id)
-
-    def show_schedule_details(self, booking_id):
-        sched = self.app.schedule_service.get_schedule_by_booking_id(booking_id)
-
-        if not sched:
-            messagebox.showerror("Error", "Schedule not found.")
-            return
-
-        details = (
-            f"Client: {sched['client_name'] or ''}\n"
-            f"Event Type: {sched['event_type'] or ''}\n"
-            f"Package: {sched['package_name'] or ''}\n"
-            f"Date: {sched['event_date'] or ''}\n"
-            f"Time: {sched['event_time'] or ''}\n"
-            f"Location: {sched['event_location'] or ''}\n"
-            f"Guest Count: {sched['guest_count'] or ''}\n"
-            f"Theme / Motif: {sched['theme_motif'] or ''}\n"
-            f"Status: {sched['status'] or ''}\n"
-            f"Total Amount: {sched['total_amount'] or 0}\n"
-            f"Down Payment: {sched['down_payment_amount'] or 0}\n"
-            f"Balance: {sched['balance_amount'] or 0}\n\n"
-            f"Notes:\n{sched['booking_notes'] or ''}"
+        ScheduleDetailsWindow(
+            parent=self,
+            schedule_page=self,
+            events=events,
+            date_text=date_text
         )
 
-        messagebox.showinfo("Schedule Details", details)
-
-    def open_reschedule_window(self):
-        if not self.selected_schedule_id:
-            messagebox.showwarning("No Selection", "Please select a schedule first.")
-            return
-
-        sched = self.app.schedule_service.get_schedule_by_booking_id(
-            self.selected_schedule_id
+    def open_booking_details(self, event):
+        ScheduleDetailsWindow(
+            parent=self,
+            schedule_page=self,
+            events=[event],
+            date_text=event["event_date"]
         )
 
-        if not sched:
-            messagebox.showerror("Error", "Schedule not found.")
+    def open_reschedule_window(self, event):
+        if str(event.get("status", "")).lower() == "cancelled":
+            messagebox.showwarning(
+                "Cancelled Schedule",
+                "Cancelled schedules cannot be rescheduled."
+            )
             return
 
-        ScheduleRescheduleWindow(
-            app=self.app,
-            schedule=sched,
-            refresh_callback=self.render_current_view
+        RescheduleScheduleWindow(
+            parent=self,
+            schedule_page=self,
+            event=event
         )
 
-    def cancel_selected_schedule(self):
-        if not self.selected_schedule_id:
-            messagebox.showwarning("No Selection", "Please select a schedule first.")
+    def confirm_cancel_schedule(self, event):
+        if str(event.get("status", "")).lower() == "cancelled":
+            messagebox.showinfo("Already Cancelled", "This schedule is already cancelled.")
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Cancel",
-            "Are you sure you want to cancel this schedule?"
+            "Cancel Schedule",
+            "Are you sure you want to cancel this schedule?\n\n"
+            f"Client: {event['client_name']}\n"
+            f"Date: {event['event_date']}\n"
+            f"Time: {event['event_time']}"
         )
 
         if not confirm:
             return
 
         try:
-            self.app.schedule_service.cancel_schedule(
-                booking_id=self.selected_schedule_id,
-                actor_id=self.app.current_user.id
-            )
+            self.cancel_booking_schedule(event["id"])
+            messagebox.showinfo("Success", "Schedule cancelled successfully.")
+            self.refresh_page()
 
-            messagebox.showinfo("Cancelled", "Schedule cancelled successfully.")
-            self.render_current_view()
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to cancel schedule: {e}")
 
-        except ValueError as e:
-            messagebox.showerror("Error", str(e))
+class ScheduleDetailsWindow(tk.Toplevel):
+    def __init__(self, parent, schedule_page: SchedulePage, events, date_text):
+        super().__init__(parent)
 
-class ScheduleRescheduleWindow(tk.Toplevel):
-    def __init__(self, app: PanaloApp, schedule, refresh_callback):
-        super().__init__()
+        self.schedule_page = schedule_page
+        self.events = events
+        self.date_text = date_text
 
-        self.app = app
-        self.schedule = schedule
-        self.refresh_callback = refresh_callback
-
-        self.title("Reschedule Booking")
-        self.geometry("460x320")
-        self.resizable(False, False)
-
-        self.date_var = tk.StringVar(value=schedule["event_date"] or "")
-        self.time_var = tk.StringVar(value=schedule["event_time"] or "")
+        self.title("Schedule Details")
+        self.geometry("620x520")
+        self.minsize(600, 480)
+        self.configure(bg=APP_BG)
 
         self.build_ui()
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        container = ttk.Frame(self, padding=20)
+        container.pack(fill="both", expand=True)
 
         ttk.Label(
-            frame,
-            text="Reschedule Booking",
-            style="Section.TLabel"
-        ).pack(anchor="w", pady=(0, 10))
+            container,
+            text=f"Schedules on {self.date_text}",
+            style="Header.TLabel"
+        ).pack(anchor="w", pady=(0, 12))
+
+        list_frame = ttk.Frame(container)
+        list_frame.pack(fill="both", expand=True)
+
+        for event in self.events:
+            self.create_event_detail_card(list_frame, event)
+
+        button_row = ttk.Frame(container)
+        button_row.pack(fill="x", pady=(14, 0))
+
+        ttk.Button(
+            button_row,
+            text="Close",
+            command=self.destroy
+        ).pack(side="right")
+
+    def create_event_detail_card(self, parent, event):
+        card = tk.Frame(
+            parent,
+            bg="#fffdf7",
+            highlightbackground=SCHEDULE_BORDER,
+            highlightthickness=1,
+            bd=0
+        )
+        card.pack(fill="x", pady=(0, 12))
+
+        header = tk.Frame(card, bg="#fffdf7")
+        header.pack(fill="x", padx=14, pady=(12, 6))
+
+        tk.Label(
+            header,
+            text=event["client_name"] or "Client",
+            bg="#fffdf7",
+            fg=TEXT_DARK,
+            font=("Segoe UI", 12, "bold")
+        ).pack(side="left")
+
+        tk.Label(
+            header,
+            text=event["status"] or "",
+            bg=SIDEBAR_ACTIVE_BG,
+            fg=ACCENT_OLIVE,
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=3
+        ).pack(side="right")
+
+        details_text = (
+            f"Event Type: {event['event_type'] or ''}\n"
+            f"Package: {event['package_name'] or ''}\n"
+            f"Date: {event['event_date'] or ''}\n"
+            f"Time: {event['event_time'] or ''}\n"
+            f"Location: {event['event_location'] or ''}\n"
+            f"Guest Count: {event['guest_count'] or ''}\n"
+            f"Theme / Motif: {event['theme_motif'] or ''}"
+        )
+
+        tk.Label(
+            card,
+            text=details_text,
+            bg="#fffdf7",
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 10),
+            justify="left",
+            anchor="w"
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+
+        actions = tk.Frame(card, bg="#fffdf7")
+        actions.pack(fill="x", padx=14, pady=(0, 12))
+
+        ttk.Button(
+            actions,
+            text="Reschedule",
+            command=lambda: self.reschedule_event(event)
+        ).pack(side="left")
+
+        ttk.Button(
+            actions,
+            text="Cancel Schedule",
+            command=lambda: self.cancel_event(event)
+        ).pack(side="left", padx=(8, 0))
+
+    def reschedule_event(self, event):
+        self.destroy()
+        self.schedule_page.open_reschedule_window(event)
+
+    def cancel_event(self, event):
+        self.destroy()
+        self.schedule_page.confirm_cancel_schedule(event)
+
+
+
+class RescheduleScheduleWindow(tk.Toplevel):
+    def __init__(self, parent, schedule_page: SchedulePage, event):
+        super().__init__(parent)
+
+        self.schedule_page = schedule_page
+        self.event = event
+
+        self.original_date = event["event_date"] or ""
+        self.original_time = event["event_time"] or ""
+
+        self.date_var = tk.StringVar(value=self.original_date)
+        self.time_var = tk.StringVar(value=self.original_time)
+
+        self.title("Reschedule")
+        self.geometry("520x420")
+        self.resizable(False, False)
+        self.configure(bg=APP_BG)
+
+        self.transient(parent)
+        self.grab_set()
+
+        self.build_ui()
+
+    def build_ui(self):
+        container = ttk.Frame(self, padding=22)
+        container.pack(fill="both", expand=True)
 
         ttk.Label(
-            frame,
-            text=f"Client: {self.schedule['client_name'] or ''}",
-            style="Section.TLabel"
-        ).pack(anchor="w", pady=(0, 15))
+            container,
+            text="Reschedule Event",
+            style="Header.TLabel"
+        ).pack(anchor="w", pady=(0, 8))
 
-        ttk.Label(frame, text="New Event Date").pack(anchor="w")
+        ttk.Label(
+            container,
+            text=f"Client: {self.event['client_name'] or ''}",
+            style="Subheader.TLabel"
+        ).pack(anchor="w")
 
-        date_row = ttk.Frame(frame)
-        date_row.pack(fill="x", pady=(3, 5))
+        ttk.Label(
+            container,
+            text=f"Current Schedule: {self.original_date} at {self.original_time}",
+            style="Subheader.TLabel"
+        ).pack(anchor="w", pady=(2, 18))
+
+        form = ttk.Frame(container)
+        form.pack(fill="x")
+
+        ttk.Label(form, text="New Event Date").pack(anchor="w")
+
+        date_row = ttk.Frame(form)
+        date_row.pack(fill="x", pady=(4, 14))
 
         ttk.Entry(
             date_row,
@@ -4576,26 +5216,48 @@ class ScheduleRescheduleWindow(tk.Toplevel):
         ttk.Button(
             date_row,
             text="Select Date",
-            command=self.open_date_picker
+            command=self.select_date
         ).pack(side="left", padx=(8, 0))
 
-        ttk.Label(
-            frame,
-            text="Only available dates can be selected. Minimum reschedule date is 3 days from today.",
-            font=("Segoe UI", 9)
-        ).pack(anchor="w", pady=(0, 12))
+        ttk.Label(form, text="New Event Time").pack(anchor="w")
 
-        ttk.Label(frame, text="New Event Time").pack(anchor="w")
+        time_options = [
+            "08:00 AM",
+            "09:00 AM",
+            "10:00 AM",
+            "11:00 AM",
+            "12:00 PM",
+            "01:00 PM",
+            "02:00 PM",
+            "03:00 PM",
+            "04:00 PM",
+            "05:00 PM",
+            "06:00 PM",
+            "07:00 PM"
+        ]
 
         ttk.Combobox(
-            frame,
+            form,
             textvariable=self.time_var,
-            values=TIME_OPTIONS,
+            values=time_options,
             state="readonly"
-        ).pack(fill="x", pady=(3, 15))
+        ).pack(fill="x", pady=(4, 18))
 
-        button_row = ttk.Frame(frame)
-        button_row.pack(fill="x", pady=(15, 0))
+        #note = (
+        #    "Available dates are selectable.\n"
+        #    "Unavailable dates are already booked or too close to today.\n"
+        #    "The current booked date is highlighted in the calendar."
+        #)
+
+        #ttk.Label(
+        #   container,
+        #    text=note,
+        #    style="Subheader.TLabel",
+        #    wraplength=460
+        #).pack(anchor="w", pady=(0, 16))
+
+        button_row = ttk.Frame(container)
+        button_row.pack(fill="x", pady=(10, 0))
 
         ttk.Button(
             button_row,
@@ -4605,37 +5267,466 @@ class ScheduleRescheduleWindow(tk.Toplevel):
 
         ttk.Button(
             button_row,
-            text="Confirm",
-            command=self.save_reschedule
+            text="Confirm Reschedule",
+            command=self.confirm_reschedule
         ).pack(side="right", padx=(0, 8))
 
-    def open_date_picker(self):
-        DatePickerWindow(
-            app=self.app,
+    def select_date(self):
+        RescheduleDatePickerWindow(
+            parent=self,
+            schedule_page=self.schedule_page,
             target_var=self.date_var,
-            initial_date=self.date_var.get(),
-            exclude_booking_id=self.schedule["id"]
+            booking_id=self.event["id"],
+            current_schedule_date=self.original_date,
+            initial_date=self.date_var.get()
         )
 
-    def save_reschedule(self):
+    def validate_reschedule(self):
+        new_date = self.date_var.get().strip()
+        new_time = self.time_var.get().strip()
+
+        if not new_date:
+            raise ValueError("Please select a new event date.")
+
+        if not new_time:
+            raise ValueError("Please select a new event time.")
+
         try:
-            self.app.schedule_service.reschedule_booking(
-                booking_id=self.schedule["id"],
-                new_event_date=self.date_var.get(),
-                new_event_time=self.time_var.get(),
-                actor_id=self.app.current_user.id
+            selected_date = datetime.strptime(new_date, "%Y-%m-%d").date()
+        except Exception:
+            raise ValueError("Invalid date format. Please use YYYY-MM-DD.")
+
+        minimum_date = date.today() + timedelta(days=3)
+
+        if selected_date < minimum_date:
+            raise ValueError(
+                "You cannot reschedule to this date.\n\n"
+                "Schedules must be at least 3 days from today."
+            )
+
+        active_count = self.schedule_page.count_active_bookings_on_date(
+            new_date,
+            exclude_booking_id=self.event["id"]
+        )
+
+        if active_count >= MAX_ACTIVE_BOOKINGS_PER_DAY:
+            raise ValueError(
+                "This date is already booked or unavailable.\n\n"
+                "Only one active booking per day is allowed for now."
+            )
+
+        return new_date, new_time
+
+    def confirm_reschedule(self):
+        try:
+            new_date, new_time = self.validate_reschedule()
+
+            if new_date == self.original_date and new_time == self.original_time:
+                messagebox.showinfo(
+                    "No Changes",
+                    "The selected schedule is the same as the current schedule."
+                )
+                return
+
+            confirm = messagebox.askyesno(
+                "Confirm Reschedule",
+                "Are you sure you want to reschedule this event?\n\n"
+                f"Client: {self.event['client_name'] or ''}\n"
+                f"From: {self.original_date} at {self.original_time}\n"
+                f"To: {new_date} at {new_time}"
+            )
+
+            if not confirm:
+                return
+
+            self.schedule_page.update_booking_schedule(
+                booking_id=self.event["id"],
+                new_date=new_date,
+                new_time=new_time
             )
 
             messagebox.showinfo(
                 "Success",
-                "Booking schedule was updated successfully."
+                "Schedule rescheduled successfully."
             )
 
-            self.refresh_callback()
             self.destroy()
 
+            self.schedule_page.current_date = datetime.strptime(
+                new_date,
+                "%Y-%m-%d"
+            ).date()
+
+            self.schedule_page.refresh_page()
+
         except ValueError as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Invalid Reschedule", str(e))
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to reschedule: {e}")
+
+class RescheduleDatePickerWindow(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        schedule_page: SchedulePage,
+        target_var,
+        booking_id,
+        current_schedule_date,
+        initial_date=None
+    ):
+        super().__init__(parent)
+
+        self.schedule_page = schedule_page
+        self.target_var = target_var
+        self.booking_id = booking_id
+        self.current_schedule_date = current_schedule_date
+
+        try:
+            parsed_initial = datetime.strptime(initial_date, "%Y-%m-%d").date()
+        except Exception:
+            parsed_initial = date.today()
+
+        self.current_year = parsed_initial.year
+        self.current_month = parsed_initial.month
+        self.selected_date = target_var.get().strip() or current_schedule_date
+
+        self.title("Select Event Date")
+        self.geometry("540x620")
+        self.resizable(False, False)
+        self.configure(bg=APP_BG)
+
+        self.transient(parent)
+        self.grab_set()
+
+        self.month_title_var = tk.StringVar()
+
+        self.build_ui()
+        self.render_calendar()
+
+    def build_ui(self):
+        container = tk.Frame(
+            self,
+            bg=APP_BG,
+            padx=18,
+            pady=18
+        )
+        container.pack(fill="both", expand=True)
+
+        nav = tk.Frame(container, bg=APP_BG)
+        nav.pack(fill="x", pady=(0, 12))
+
+        tk.Button(
+            nav,
+            text="‹",
+            command=self.previous_month,
+            bg="#f8f3e8",
+            fg=TEXT_DARK,
+            activebackground="#efe8d8",
+            activeforeground=TEXT_DARK,
+            relief="solid",
+            bd=1,
+            width=6,
+            height=2,
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="left")
+
+        tk.Label(
+            nav,
+            textvariable=self.month_title_var,
+            bg=APP_BG,
+            fg=TEXT_DARK,
+            font=("Segoe UI", 16, "bold")
+        ).pack(side="left", expand=True)
+
+        tk.Button(
+            nav,
+            text="›",
+            command=self.next_month,
+            bg="#f8f3e8",
+            fg=TEXT_DARK,
+            activebackground="#efe8d8",
+            activeforeground=TEXT_DARK,
+            relief="solid",
+            bd=1,
+            width=6,
+            height=2,
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="right")
+
+        self.calendar_frame = tk.Frame(
+            container,
+            bg=APP_BG
+        )
+        self.calendar_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+        legend = tk.Frame(container, bg=APP_BG)
+        legend.pack(fill="x", pady=(6, 12))
+
+        self.create_legend_box(legend, "Available", "#fffdf7", TEXT_DARK)
+        self.create_legend_box(legend, "Unavailable", "#f6d2d8", "#b13b49")
+        self.create_legend_box(legend, "Current", "#d9c47f", "white")
+        self.create_legend_box(legend, "Selected", ACCENT_OLIVE, "white")
+
+        button_row = tk.Frame(container, bg=APP_BG)
+        button_row.pack(fill="x")
+
+        tk.Button(
+            button_row,
+            text="Cancel",
+            command=self.destroy,
+            bg="#f8f3e8",
+            fg=TEXT_DARK,
+            activebackground="#efe8d8",
+            activeforeground=TEXT_DARK,
+            relief="solid",
+            bd=1,
+            width=14,
+            height=2,
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="right")
+
+        tk.Button(
+            button_row,
+            text="Confirm Date",
+            command=self.confirm_date,
+            bg=ACCENT_OLIVE,
+            fg="white",
+            activebackground="#555f34",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            width=16,
+            height=2,
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="right", padx=(0, 10))
+
+    def create_legend_box(self, parent, text, bg_color, fg_color):
+        item = tk.Frame(parent, bg=APP_BG)
+        item.pack(side="left", padx=(0, 10))
+
+        sample = tk.Label(
+            item,
+            text="",
+            bg=bg_color,
+            relief="solid",
+            bd=1,
+            width=3,
+            height=1
+        )
+        sample.pack(side="left")
+
+        tk.Label(
+            item,
+            text=text,
+            bg=APP_BG,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 8)
+        ).pack(side="left", padx=(4, 0))
+
+    def previous_month(self):
+        if self.current_month == 1:
+            self.current_month = 12
+            self.current_year -= 1
+        else:
+            self.current_month -= 1
+
+        self.render_calendar()
+
+    def next_month(self):
+        if self.current_month == 12:
+            self.current_month = 1
+            self.current_year += 1
+        else:
+            self.current_month += 1
+
+        self.render_calendar()
+
+    def clear_calendar(self):
+        for widget in self.calendar_frame.winfo_children():
+            widget.destroy()
+
+    def render_calendar(self):
+        self.clear_calendar()
+
+        self.month_title_var.set(
+            f"{calendar.month_name[self.current_month]} {self.current_year}"
+        )
+
+        booked_dates = self.schedule_page.get_booked_dates_for_month(
+            self.current_year,
+            self.current_month,
+            exclude_booking_id=self.booking_id
+        )
+
+        weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+        for col, day_name in enumerate(weekdays):
+            tk.Label(
+                self.calendar_frame,
+                text=day_name,
+                bg=APP_BG,
+                fg=TEXT_DARK,
+                font=("Segoe UI", 10, "bold")
+            ).grid(row=0, column=col, sticky="nsew", pady=(0, 8))
+
+        for col in range(7):
+            self.calendar_frame.grid_columnconfigure(col, weight=1, uniform="calendar_col")
+
+        for row in range(1, 7):
+            self.calendar_frame.grid_rowconfigure(row, weight=1, uniform="calendar_row")
+
+        first_weekday, days_in_month = calendar.monthrange(
+            self.current_year,
+            self.current_month
+        )
+
+        start_col = (first_weekday + 1) % 7
+        day_number = 1
+
+        for week in range(6):
+            for col in range(7):
+                if week == 0 and col < start_col:
+                    spacer = tk.Frame(self.calendar_frame, bg=APP_BG)
+                    spacer.grid(row=week + 1, column=col, padx=3, pady=3, sticky="nsew")
+                    continue
+
+                if day_number > days_in_month:
+                    spacer = tk.Frame(self.calendar_frame, bg=APP_BG)
+                    spacer.grid(row=week + 1, column=col, padx=3, pady=3, sticky="nsew")
+                    continue
+
+                current_day = date(
+                    self.current_year,
+                    self.current_month,
+                    day_number
+                )
+
+                date_text = current_day.strftime("%Y-%m-%d")
+
+                self.create_date_button(
+                    row=week + 1,
+                    col=col,
+                    current_day=current_day,
+                    date_text=date_text,
+                    booked_dates=booked_dates
+                )
+
+                day_number += 1
+
+    def create_date_button(self, row, col, current_day, date_text, booked_dates):
+        minimum_date = date.today() + timedelta(days=3)
+
+        is_current_schedule = date_text == self.current_schedule_date
+        is_selected = date_text == self.selected_date
+        is_too_soon = current_day < minimum_date
+        is_booked = booked_dates.get(date_text, 0) >= MAX_ACTIVE_BOOKINGS_PER_DAY
+
+        is_unavailable = is_too_soon or is_booked
+
+        bg_color = "#fffdf7"
+        fg_color = TEXT_DARK
+        border_color = "#2f2b1f"
+        clickable = True
+
+        if is_unavailable:
+            bg_color = "#f6d2d8"
+            fg_color = "#b13b49"
+            border_color = "#2f2b1f"
+            clickable = False
+
+        if is_current_schedule:
+            bg_color = "#d9c47f"
+            fg_color = "white"
+            border_color = ACCENT_OLIVE
+            clickable = True
+
+        if is_selected:
+            bg_color = ACCENT_OLIVE
+            fg_color = "white"
+            border_color = ACCENT_OLIVE
+            clickable = True
+
+        button = tk.Button(
+            self.calendar_frame,
+            text=str(current_day.day),
+            bg=bg_color,
+            fg=fg_color,
+            activebackground=bg_color,
+            activeforeground=fg_color,
+            relief="solid",
+            bd=1,
+            highlightbackground=border_color,
+            highlightcolor=border_color,
+            highlightthickness=1,
+            font=("Segoe UI", 10, "bold"),
+            cursor="hand2" if clickable else "arrow",
+            command=lambda value=date_text: self.select_date(value) if clickable else None
+        )
+
+        button.grid(
+            row=row,
+            column=col,
+            padx=3,
+            pady=3,
+            sticky="nsew"
+        )
+
+    def select_date(self, date_text):
+        self.selected_date = date_text
+        self.render_calendar()
+
+    def confirm_date(self):
+        if not self.selected_date:
+            messagebox.showwarning(
+                "No Date Selected",
+                "Please select an available date."
+            )
+            return
+
+        try:
+            selected = datetime.strptime(self.selected_date, "%Y-%m-%d").date()
+        except Exception:
+            messagebox.showerror("Invalid Date", "Invalid selected date.")
+            return
+
+        minimum_date = date.today() + timedelta(days=3)
+
+        if selected < minimum_date:
+            messagebox.showerror(
+                "Unavailable Date",
+                "This date is unavailable.\n\n"
+                "Schedules must be at least 3 days from today."
+            )
+            return
+
+        active_count = self.schedule_page.count_active_bookings_on_date(
+            self.selected_date,
+            exclude_booking_id=self.booking_id
+        )
+
+        if active_count >= MAX_ACTIVE_BOOKINGS_PER_DAY:
+            messagebox.showerror(
+                "Unavailable Date",
+                "This date is already booked.\n\n"
+                "Please select another available date."
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Date Selection",
+            f"Use this date for rescheduling?\n\nSelected Date: {self.selected_date}"
+        )
+
+        if not confirm:
+            return
+
+        self.target_var.set(self.selected_date)
+        self.destroy()
 
 
 class PaymentPage(ttk.Frame):
