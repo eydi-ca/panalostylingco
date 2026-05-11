@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from db import Database
 
 
@@ -222,6 +224,23 @@ class PaymentService:
                         f"Refund cannot exceed refundable amount. Available refundable amount: ₱{refundable_amount:,.2f}"
                     )
 
+            verification_setting = conn.execute(
+                """
+                SELECT setting_value
+                FROM system_settings
+                WHERE setting_key = 'payment_verification_required'
+                LIMIT 1
+                """
+            ).fetchone()
+
+            verification_required = (
+                not verification_setting
+                or verification_setting["setting_value"] != "No"
+            )
+            verification_status = "Pending" if verification_required else "Verified"
+            verified_by = None if verification_required else created_by
+            verified_at = None if verification_required else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             cur = conn.execute(
                 """
                 INSERT INTO payments (
@@ -232,10 +251,12 @@ class PaymentService:
                     reference_number,
                     payment_date,
                     verification_status,
+                    verified_by,
+                    verified_at,
                     notes,
                     created_by
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     booking_id,
@@ -244,6 +265,9 @@ class PaymentService:
                     payment_method.strip(),
                     reference_number.strip(),
                     payment_date.strip(),
+                    verification_status,
+                    verified_by,
+                    verified_at,
                     notes.strip(),
                     created_by
                 )
@@ -262,6 +286,9 @@ class PaymentService:
                     f"Added payment ID {payment_id} for booking ID {booking_id}"
                 )
             )
+
+            if verification_status == "Verified":
+                self.sync_booking_balance(conn, booking_id)
 
     def verify_payment(self, payment_id: int, actor_id: int):
         with self.db.get_conn() as conn:

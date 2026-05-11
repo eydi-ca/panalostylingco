@@ -6,7 +6,7 @@ import json
 from PIL import Image, ImageTk
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 from auth_service import AuthService
 from db import Database
@@ -89,6 +89,10 @@ class PanaloApp(tk.Tk):
         self.db = Database()
         self.auth_service = AuthService(self.db)
         self.settings_service = SettingsService(self.db)
+        try:
+            self.settings_service.create_auto_backup_if_due()
+        except Exception:
+            pass
         self.client_service = ClientService(self.db)
         self.package_service = PackageService(self.db)
         self.booking_service = BookingService(self.db)
@@ -2328,6 +2332,143 @@ class SimpleNameWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+
+class AccountChangeConfirmationWindow(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        app: PanaloApp,
+        full_name: str,
+        username: str,
+        new_password: str,
+        confirm_password: str,
+        on_success
+    ):
+        super().__init__()
+
+        self.parent = parent
+        self.app = app
+        self.full_name = full_name
+        self.username = username
+        self.new_password = new_password
+        self.confirm_password = confirm_password
+        self.on_success = on_success
+        self.password_var = tk.StringVar()
+
+        self.title("Confirm Account Changes")
+        self.geometry("420x340")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.center_window()
+
+        self.build_ui()
+
+    def center_window(self):
+        self.update_idletasks()
+
+        width = 420
+        height = 340
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def build_ui(self):
+        frame = ttk.Frame(self, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="Confirm Account Changes",
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(
+            frame,
+            text="Please review the changes and enter your current password.",
+            font=("Segoe UI", 10)
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(frame, text=f"Full Name: {self.full_name}").pack(anchor="w", pady=2)
+        ttk.Label(frame, text=f"Username: {self.username}").pack(anchor="w", pady=2)
+        password_change_text = "Yes" if self.new_password or self.confirm_password else "No"
+        ttk.Label(frame, text=f"Change Password: {password_change_text}").pack(anchor="w", pady=(2, 14))
+
+        ttk.Label(frame, text="Current Password").pack(anchor="w", pady=(0, 3))
+        password_entry = ttk.Entry(
+            frame,
+            textvariable=self.password_var,
+            show="*"
+        )
+        password_entry.pack(fill="x", pady=(0, 15))
+        password_entry.focus_set()
+
+        button_row = ttk.Frame(frame)
+        button_row.pack(fill="x")
+
+        ttk.Button(
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm Changes",
+            command=self.confirm_changes
+        ).pack(side="right", padx=(0, 8))
+
+        self.bind("<Return>", lambda event: self.confirm_changes())
+
+    def confirm_changes(self):
+        confirm = messagebox.askyesno(
+            "Confirm Changes",
+            "Apply these account changes?",
+            parent=self
+        )
+
+        if not confirm:
+            return
+
+        try:
+            if self.new_password or self.confirm_password:
+                if self.new_password != self.confirm_password:
+                    raise ValueError("New password and confirmation do not match.")
+
+                self.app.auth_service.validate_password(self.new_password)
+
+            profile_changed = (
+                self.full_name != self.parent.account_original_full_name
+                or self.username != self.parent.account_original_username
+            )
+
+            if profile_changed:
+                updated_user = self.app.auth_service.update_own_account(
+                    user_id=self.app.current_user.id,
+                    full_name=self.full_name,
+                    username=self.username,
+                    current_password=self.password_var.get()
+                )
+            else:
+                updated_user = self.app.current_user
+
+            if self.new_password or self.confirm_password:
+                self.app.auth_service.change_own_password(
+                    user_id=self.app.current_user.id,
+                    current_password=self.password_var.get(),
+                    new_password=self.new_password
+                )
+
+            self.destroy()
+            self.on_success(updated_user)
+
+        except ValueError as e:
+            messagebox.showerror("Authentication Failed", str(e), parent=self)
+
 
 class ClientsPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
@@ -5755,9 +5896,19 @@ class SettingsPage(ttk.Frame):
 
         self.app = app
         self.setting_vars = {}
+        self.original_settings = {}
+        self.loading_settings = False
+        self.account_full_name_var = tk.StringVar()
+        self.account_username_var = tk.StringVar()
+        self.account_role_var = tk.StringVar()
+        self.new_password_var = tk.StringVar()
+        self.confirm_password_var = tk.StringVar()
+        self.account_original_full_name = ""
+        self.account_original_username = ""
 
         self.build_ui()
         self.load_settings()
+        self.load_account()
 
     def build_ui(self):
         ttk.Label(
@@ -5775,44 +5926,94 @@ class SettingsPage(ttk.Frame):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True)
 
+        self.account_tab = ttk.Frame(self.notebook, padding=20)
         self.business_tab = ttk.Frame(self.notebook, padding=20)
-        self.payment_tab = ttk.Frame(self.notebook, padding=20)
-        self.booking_tab = ttk.Frame(self.notebook, padding=20)
-        self.event_types_tab = ttk.Frame(self.notebook, padding=20)
-        self.booking_statuses_tab = ttk.Frame(self.notebook, padding=20)
+        self.policies_tab = ttk.Frame(self.notebook, padding=20)
+        self.backup_tab = ttk.Frame(self.notebook, padding=20)
+        self.lists_tab = ttk.Frame(self.notebook, padding=20)
 
+        self.notebook.add(self.account_tab, text="Account")
         self.notebook.add(self.business_tab, text="Business Profile")
-        self.notebook.add(self.payment_tab, text="Payment Policy")
-        self.notebook.add(self.booking_tab, text="Booking Policy")
-        self.notebook.add(self.event_types_tab, text="Event Types")
-        self.notebook.add(self.booking_statuses_tab, text="Booking Statuses")
+        self.notebook.add(self.policies_tab, text="Policies")
+        self.notebook.add(self.backup_tab, text="Database Backup")
 
+        self.notebook.add(self.lists_tab, text="Lists")
+
+        self.policies_notebook = ttk.Notebook(self.policies_tab)
+        self.policies_notebook.pack(fill="both", expand=True)
+
+        self.booking_tab = ttk.Frame(self.policies_notebook, padding=15)
+        self.payment_tab = ttk.Frame(self.policies_notebook, padding=15)
+        self.contract_tab = ttk.Frame(self.policies_notebook, padding=15)
+
+        self.policies_notebook.add(self.booking_tab, text="Booking")
+        self.policies_notebook.add(self.payment_tab, text="Payment")
+        self.policies_notebook.add(self.contract_tab, text="Contract")
+
+        self.lists_tab.columnconfigure(0, weight=1)
+        self.lists_tab.rowconfigure(0, weight=1)
+        self.lists_tab.rowconfigure(1, weight=1)
+
+        self.event_types_tab = ttk.LabelFrame(
+            self.lists_tab,
+            text="Event Types",
+            padding=15
+        )
+        self.booking_statuses_tab = ttk.LabelFrame(
+            self.lists_tab,
+            text="Booking Statuses",
+            padding=15
+        )
+
+        self.event_types_tab.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        self.booking_statuses_tab.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+
+        self.build_account_tab()
         self.build_business_tab()
         self.build_payment_tab()
         self.build_booking_tab()
+        self.build_contract_tab()
+        self.build_backup_tab()
         self.build_event_types_tab()
         self.build_booking_statuses_tab()
 
         action_bar = ttk.Frame(self)
         action_bar.pack(fill="x", pady=(15, 0))
 
-        ttk.Button(
+        self.settings_status_label = ttk.Label(
+            action_bar,
+            text="No unsaved changes.",
+            font=("Segoe UI", 10)
+        )
+        self.settings_status_label.pack(side="left")
+
+        self.save_settings_button = ttk.Button(
             action_bar,
             text="Save Settings",
             command=self.save_settings
-        ).pack(side="right")
+        )
+        self.save_settings_button.pack(side="right")
 
-        ttk.Button(
+        self.refresh_settings_button = ttk.Button(
             action_bar,
             text="Refresh",
-            command=self.load_settings
-        ).pack(side="right", padx=(0, 8))
+            command=self.refresh_current_settings_tab
+        )
+        self.refresh_settings_button.pack(side="right", padx=(0, 8))
+
+        self.notebook.bind("<<NotebookTabChanged>>", self.handle_settings_tab_changed)
+        self.account_full_name_var.trace_add("write", lambda *args: self.update_save_settings_button_state())
+        self.account_username_var.trace_add("write", lambda *args: self.update_save_settings_button_state())
+        self.new_password_var.trace_add("write", lambda *args: self.update_save_settings_button_state())
+        self.confirm_password_var.trace_add("write", lambda *args: self.update_save_settings_button_state())
+        self.handle_settings_tab_changed()
 
     def create_input(self, parent, label, key):
         ttk.Label(parent, text=label).pack(anchor="w", pady=(0, 3))
 
         var = tk.StringVar()
         self.setting_vars[key] = var
+        var.trace_add("write", lambda *args: self.update_save_settings_button_state())
 
         entry = ttk.Entry(parent, textvariable=var)
         entry.pack(fill="x", pady=(0, 10))
@@ -5824,6 +6025,7 @@ class SettingsPage(ttk.Frame):
 
         var = tk.StringVar()
         self.setting_vars[key] = var
+        var.trace_add("write", lambda *args: self.update_save_settings_button_state())
 
         combo = ttk.Combobox(
             parent,
@@ -5840,55 +6042,151 @@ class SettingsPage(ttk.Frame):
 
         textbox = tk.Text(parent, height=height, wrap="word")
         textbox.pack(fill="x", pady=(0, 10))
+        textbox.bind("<<Modified>>", lambda event: self.handle_textbox_modified(event))
 
         self.setting_vars[key] = textbox
 
         return textbox
 
+    def handle_textbox_modified(self, event):
+        widget = event.widget
+
+        if widget.edit_modified():
+            widget.edit_modified(False)
+            self.update_save_settings_button_state()
+
+    def build_account_tab(self):
+        self.account_tab.columnconfigure(0, weight=1)
+        self.account_tab.columnconfigure(1, weight=1)
+
+        profile_panel = ttk.LabelFrame(
+            self.account_tab,
+            text="Profile",
+            padding=15
+        )
+        profile_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        password_panel = ttk.LabelFrame(
+            self.account_tab,
+            text="Change Password",
+            padding=15
+        )
+        password_panel.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+        ttk.Label(
+            profile_panel,
+            text="Update your personal account details. Confirmation is required before changes apply.",
+            font=("Segoe UI", 10),
+            wraplength=360
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(profile_panel, text="Full Name").pack(anchor="w", pady=(0, 3))
+        ttk.Entry(
+            profile_panel,
+            textvariable=self.account_full_name_var
+        ).pack(fill="x", pady=(0, 10))
+
+        ttk.Label(profile_panel, text="Username").pack(anchor="w", pady=(0, 3))
+        ttk.Entry(
+            profile_panel,
+            textvariable=self.account_username_var
+        ).pack(fill="x", pady=(0, 10))
+
+        ttk.Label(profile_panel, text="Role").pack(anchor="w", pady=(0, 3))
+        ttk.Entry(
+            profile_panel,
+            textvariable=self.account_role_var,
+            state="readonly"
+        ).pack(fill="x", pady=(0, 15))
+
+        ttk.Label(
+            password_panel,
+            text="Enter a new password only when you want to change it. Authentication happens when you save.",
+            font=("Segoe UI", 10),
+            wraplength=360
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(password_panel, text="New Password").pack(anchor="w", pady=(0, 3))
+        ttk.Entry(
+            password_panel,
+            textvariable=self.new_password_var,
+            show="*"
+        ).pack(fill="x", pady=(0, 10))
+
+        ttk.Label(password_panel, text="Confirm New Password").pack(anchor="w", pady=(0, 3))
+        ttk.Entry(
+            password_panel,
+            textvariable=self.confirm_password_var,
+            show="*"
+        ).pack(fill="x", pady=(0, 10))
+
     def build_business_tab(self):
-        self.create_input(
+        self.business_tab.columnconfigure(0, weight=1)
+        self.business_tab.columnconfigure(1, weight=1)
+
+        identity_panel = ttk.LabelFrame(
             self.business_tab,
+            text="Business Identity",
+            padding=15
+        )
+        identity_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        contact_panel = ttk.LabelFrame(
+            self.business_tab,
+            text="Contact and Socials",
+            padding=15
+        )
+        contact_panel.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+        self.create_input(
+            identity_panel,
             "Business Name",
             "business_name"
         )
 
         self.create_input(
-            self.business_tab,
+            identity_panel,
             "Business Tagline",
             "business_tagline"
         )
 
         self.create_input(
-            self.business_tab,
+            identity_panel,
             "Business Location",
             "business_location"
         )
 
         self.create_input(
-            self.business_tab,
+            contact_panel,
             "Contact Number",
             "business_contact"
         )
 
         self.create_input(
-            self.business_tab,
+            contact_panel,
             "Email Address",
             "business_email"
         )
 
         self.create_input(
-            self.business_tab,
+            contact_panel,
             "Facebook Page",
             "facebook_page"
         )
 
         self.create_input(
-            self.business_tab,
+            contact_panel,
             "Instagram Page",
             "instagram_page"
         )
 
     def build_payment_tab(self):
+        ttk.Label(
+            self.payment_tab,
+            text="Payment Rules",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(0, 10))
+
         self.create_input(
             self.payment_tab,
             "Default Down Payment Percentage",
@@ -5908,6 +6206,12 @@ class SettingsPage(ttk.Frame):
             ["Yes", "No"]
         )
 
+        ttk.Label(
+            self.payment_tab,
+            text="Written Policy",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(5, 10))
+
         self.create_textbox(
             self.payment_tab,
             "Refund Policy",
@@ -5916,6 +6220,12 @@ class SettingsPage(ttk.Frame):
         )
 
     def build_booking_tab(self):
+        ttk.Label(
+            self.booking_tab,
+            text="Reschedule Rules",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(0, 10))
+
         self.create_combo(
             self.booking_tab,
             "Allow Reschedule",
@@ -5928,6 +6238,12 @@ class SettingsPage(ttk.Frame):
             "Maximum Reschedule Count",
             "max_reschedule_count"
         )
+
+        ttk.Label(
+            self.booking_tab,
+            text="Written Policies",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(5, 10))
 
         self.create_textbox(
             self.booking_tab,
@@ -5942,6 +6258,127 @@ class SettingsPage(ttk.Frame):
             "cancellation_policy",
             height=5
         )
+
+    def build_contract_tab(self):
+        ttk.Label(
+            self.contract_tab,
+            text="These policy fields are used as the source text for client contract terms.",
+            font=("Segoe UI", 10)
+        ).pack(anchor="w", pady=(0, 10))
+
+        self.create_textbox(
+            self.contract_tab,
+            "Contract Policy Notes",
+            "contract_policy_notes",
+            height=5
+        )
+
+        ttk.Label(
+            self.contract_tab,
+            text="Included Contract Policies",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(5, 8))
+
+        for label in [
+            "Payment Policy: Down payment percentage and full payment due days",
+            "Refund Policy",
+            "Reschedule Policy",
+            "Cancellation Policy"
+        ]:
+            ttk.Label(
+                self.contract_tab,
+                text=label,
+                font=("Segoe UI", 10)
+            ).pack(anchor="w", pady=2)
+
+    def build_backup_tab(self):
+        ttk.Label(
+            self.backup_tab,
+            text="Backup Settings",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(0, 10))
+
+        self.create_combo(
+            self.backup_tab,
+            "Automatic Backup Frequency",
+            "backup_frequency",
+            ["Manual Only", "Daily", "Weekly"]
+        )
+
+        location_row = ttk.Frame(self.backup_tab)
+        location_row.pack(fill="x", pady=(0, 10))
+
+        location_left = ttk.Frame(location_row)
+        location_left.pack(side="left", fill="x", expand=True)
+
+        ttk.Label(location_left, text="Backup Location").pack(anchor="w", pady=(0, 3))
+
+        var = tk.StringVar()
+        self.setting_vars["backup_location"] = var
+        var.trace_add("write", lambda *args: self.update_save_settings_button_state())
+
+        ttk.Entry(
+            location_left,
+            textvariable=var
+        ).pack(fill="x")
+
+        ttk.Button(
+            location_row,
+            text="Browse",
+            command=self.select_backup_location
+        ).pack(side="right", padx=(8, 0), pady=(19, 0))
+
+        self.last_backup_label = ttk.Label(
+            self.backup_tab,
+            text="Last backup: None",
+            font=("Segoe UI", 10)
+        )
+        self.last_backup_label.pack(anchor="w", pady=(0, 10))
+
+        ttk.Button(
+            self.backup_tab,
+            text="Create Backup Now",
+            command=self.create_backup_now
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            self.backup_tab,
+            text="Backup History",
+            style="Section.TLabel"
+        ).pack(anchor="w", pady=(4, 8))
+
+        columns = ("created_at", "file_name", "size_kb")
+        self.backup_table = ttk.Treeview(
+            self.backup_tab,
+            columns=columns,
+            show="headings",
+            height=8
+        )
+
+        self.backup_table.heading("created_at", text="Created At")
+        self.backup_table.heading("file_name", text="Backup File")
+        self.backup_table.heading("size_kb", text="Size KB")
+
+        self.backup_table.column("created_at", width=160)
+        self.backup_table.column("file_name", width=360)
+        self.backup_table.column("size_kb", width=100)
+
+        self.backup_table.pack(fill="both", expand=True)
+
+        backup_action_bar = ttk.Frame(self.backup_tab)
+        backup_action_bar.pack(fill="x", pady=(10, 0))
+
+        ttk.Button(
+            backup_action_bar,
+            text="Restore Selected Backup",
+            command=self.restore_selected_backup
+        ).pack(side="left")
+
+        ttk.Button(
+            backup_action_bar,
+            text="Open Backup Folder",
+            command=self.open_backup_folder
+        ).pack(side="left", padx=(8, 0))
 
     def build_event_types_tab(self):
         top_bar = ttk.Frame(self.event_types_tab)
@@ -5959,19 +6396,21 @@ class SettingsPage(ttk.Frame):
             command=self.open_add_event_type_window
         ).pack(side="right")
 
-        columns = ("id", "name")
+        columns = ("id", "name", "status")
         self.event_types_table = ttk.Treeview(
             self.event_types_tab,
             columns=columns,
             show="headings",
-            height=12
+            height=6
         )
 
         self.event_types_table.heading("id", text="ID")
         self.event_types_table.heading("name", text="Event Type")
+        self.event_types_table.heading("status", text="Status")
 
         self.event_types_table.column("id", width=80)
         self.event_types_table.column("name", width=400)
+        self.event_types_table.column("status", width=120)
 
         self.event_types_table.pack(fill="both", expand=True)
 
@@ -5986,7 +6425,7 @@ class SettingsPage(ttk.Frame):
 
         ttk.Button(
             action_bar,
-            text="Delete Selected",
+            text="Deactivate Selected",
             command=self.delete_selected_event_type
         ).pack(side="left", padx=(8, 0))
 
@@ -6012,19 +6451,21 @@ class SettingsPage(ttk.Frame):
             command=self.open_add_booking_status_window
         ).pack(side="right")
 
-        columns = ("id", "name")
+        columns = ("id", "name", "status")
         self.booking_statuses_table = ttk.Treeview(
             self.booking_statuses_tab,
             columns=columns,
             show="headings",
-            height=12
+            height=6
         )
 
         self.booking_statuses_table.heading("id", text="ID")
         self.booking_statuses_table.heading("name", text="Booking Status")
+        self.booking_statuses_table.heading("status", text="Status")
 
         self.booking_statuses_table.column("id", width=80)
         self.booking_statuses_table.column("name", width=400)
+        self.booking_statuses_table.column("status", width=120)
 
         self.booking_statuses_table.pack(fill="both", expand=True)
 
@@ -6039,7 +6480,7 @@ class SettingsPage(ttk.Frame):
 
         ttk.Button(
             action_bar,
-            text="Delete Selected",
+            text="Deactivate Selected",
             command=self.delete_selected_booking_status
         ).pack(side="left", padx=(8, 0))
 
@@ -6049,11 +6490,220 @@ class SettingsPage(ttk.Frame):
             command=self.load_booking_statuses
         ).pack(side="right")
 
+    def load_account(self):
+        user = self.app.auth_service.get_user_by_id(self.app.current_user.id)
+
+        self.account_full_name_var.set(user["full_name"])
+        self.account_username_var.set(user["username"])
+        self.account_role_var.set(user["role"])
+        self.new_password_var.set("")
+        self.confirm_password_var.set("")
+        self.account_original_full_name = user["full_name"]
+        self.account_original_username = user["username"]
+        self.update_save_settings_button_state()
+
+    def handle_settings_tab_changed(self, event=None):
+        self.update_save_settings_button_state()
+
+    def has_pending_account_changes(self):
+        profile_changed = (
+            self.account_full_name_var.get().strip() != self.account_original_full_name
+            or self.account_username_var.get().strip() != self.account_original_username
+        )
+
+        password_started = any([
+            self.new_password_var.get(),
+            self.confirm_password_var.get()
+        ])
+
+        return profile_changed or password_started
+
+    def has_pending_settings_changes(self):
+        if self.loading_settings or not self.original_settings:
+            return False
+
+        current_settings = self.collect_settings()
+
+        for key, value in current_settings.items():
+            if value != self.original_settings.get(key, ""):
+                return True
+
+        return False
+
+    def update_save_settings_button_state(self):
+        if not hasattr(self, "save_settings_button"):
+            return
+
+        selected_tab = self.notebook.tab(self.notebook.select(), "text")
+        save_button_text = {
+            "Account": "Save Account Changes",
+            "Business Profile": "Save Business Profile",
+            "Policies": "Save Policies",
+            "Database Backup": "Save Backup Settings"
+        }.get(selected_tab, "Save Settings")
+        self.save_settings_button.config(text=save_button_text)
+
+        if selected_tab == "Lists":
+            self.save_settings_button.config(state="disabled")
+            self.settings_status_label.config(text="Use this tab's action buttons.")
+        elif selected_tab == "Account" and self.has_pending_account_changes():
+            self.save_settings_button.config(state="normal")
+            self.settings_status_label.config(text="Unsaved account changes.")
+        elif selected_tab == "Account":
+            self.save_settings_button.config(state="disabled")
+            self.settings_status_label.config(text="No unsaved account changes.")
+        elif self.has_pending_settings_changes():
+            self.save_settings_button.config(state="normal")
+            self.settings_status_label.config(text="Unsaved changes.")
+        else:
+            self.save_settings_button.config(state="disabled")
+            self.settings_status_label.config(text="No unsaved changes.")
+
+    def refresh_current_settings_tab(self):
+        selected_tab = self.notebook.tab(self.notebook.select(), "text")
+
+        if selected_tab == "Account":
+            self.load_account()
+            return
+
+        self.load_settings()
+
+    def save_account(self):
+        full_name = self.account_full_name_var.get().strip()
+        username = self.account_username_var.get().strip()
+        new_password = self.new_password_var.get()
+        confirm_password = self.confirm_password_var.get()
+
+        AccountChangeConfirmationWindow(
+            parent=self,
+            app=self.app,
+            full_name=full_name,
+            username=username,
+            new_password=new_password,
+            confirm_password=confirm_password,
+            on_success=self.handle_account_saved
+        )
+
+    def handle_account_saved(self, updated_user):
+        self.app.current_user = updated_user
+        self.load_account()
+        self.update_save_settings_button_state()
+
+        messagebox.showinfo(
+            "Account Saved",
+            "Your account details were saved successfully."
+        )
+
+    def select_backup_location(self):
+        folder = filedialog.askdirectory(
+            parent=self,
+            title="Select Backup Location"
+        )
+
+        if folder:
+            self.setting_vars["backup_location"].set(folder)
+
+    def create_backup_now(self):
+        try:
+            self.app.settings_service.update_settings(
+                {
+                    "backup_frequency": self.setting_vars["backup_frequency"].get(),
+                    "backup_location": self.setting_vars["backup_location"].get().strip()
+                },
+                actor_id=self.app.current_user.id
+            )
+
+            backup_file = self.app.settings_service.create_database_backup(
+                actor_id=self.app.current_user.id
+            )
+
+            self.load_settings()
+
+            messagebox.showinfo(
+                "Backup Created",
+                f"Database backup was created successfully.\n\n{backup_file}"
+            )
+
+        except Exception as e:
+            messagebox.showerror("Backup Failed", str(e))
+
+    def get_selected_backup(self):
+        selected = self.backup_table.selection()
+
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a backup first.")
+            return None
+
+        values = self.backup_table.item(selected[0], "values")
+        file_name = values[1]
+
+        for backup in getattr(self, "backup_cache", []):
+            if backup["file_name"] == file_name:
+                return backup
+
+        messagebox.showerror("Backup Not Found", "Selected backup file could not be found.")
+        return None
+
+    def restore_selected_backup(self):
+        backup = self.get_selected_backup()
+
+        if not backup:
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Restore",
+            "Restore this database backup? A safety backup of the current database will be created first."
+        )
+
+        if not confirm:
+            return
+
+        try:
+            safety_backup = self.app.settings_service.restore_database_backup(
+                backup["file_path"],
+                actor_id=self.app.current_user.id
+            )
+
+            messagebox.showinfo(
+                "Backup Restored",
+                f"Database backup was restored successfully.\n\nSafety backup created:\n{safety_backup}\n\nPlease restart the program."
+            )
+
+        except Exception as e:
+            messagebox.showerror("Restore Failed", str(e))
+
+    def open_backup_folder(self):
+        try:
+            backup_dir = self.app.settings_service.get_backup_directory()
+            os.startfile(backup_dir)
+        except Exception as e:
+            messagebox.showerror("Open Folder Failed", str(e))
+
+    def load_backup_history(self):
+        if not hasattr(self, "backup_table"):
+            return
+
+        for item in self.backup_table.get_children():
+            self.backup_table.delete(item)
+
+        self.backup_cache = self.app.settings_service.list_database_backups()
+
+        for backup in self.backup_cache:
+            self.backup_table.insert(
+                "",
+                "end",
+                values=(
+                    backup["created_at"],
+                    backup["file_name"],
+                    backup["size_kb"]
+                )
+            )
+
     def load_event_types(self):
         for item in self.event_types_table.get_children():
             self.event_types_table.delete(item)
 
-        event_types = self.app.settings_service.list_event_types()
+        event_types = self.app.settings_service.list_event_types(active_only=False)
 
         for event_type in event_types:
             self.event_types_table.insert(
@@ -6061,7 +6711,8 @@ class SettingsPage(ttk.Frame):
                 "end",
                 values=(
                     event_type["id"],
-                    event_type["name"]
+                    event_type["name"],
+                    "Active" if event_type["is_active"] else "Inactive"
                 )
             )
 
@@ -6069,7 +6720,7 @@ class SettingsPage(ttk.Frame):
         for item in self.booking_statuses_table.get_children():
             self.booking_statuses_table.delete(item)
 
-        statuses = self.app.settings_service.list_booking_statuses()
+        statuses = self.app.settings_service.list_booking_statuses(active_only=False)
 
         for status in statuses:
             self.booking_statuses_table.insert(
@@ -6077,7 +6728,8 @@ class SettingsPage(ttk.Frame):
                 "end",
                 values=(
                     status["id"],
-                    status["name"]
+                    status["name"],
+                    "Active" if status["is_active"] else "Inactive"
                 )
             )
 
@@ -6092,7 +6744,8 @@ class SettingsPage(ttk.Frame):
 
         return {
             "id": int(values[0]),
-            "name": values[1]
+            "name": values[1],
+            "status": values[2]
         }
 
     def get_selected_booking_status(self):
@@ -6106,7 +6759,8 @@ class SettingsPage(ttk.Frame):
 
         return {
             "id": int(values[0]),
-            "name": values[1]
+            "name": values[1],
+            "status": values[2]
         }
 
     def open_add_event_type_window(self):
@@ -6175,19 +6829,23 @@ class SettingsPage(ttk.Frame):
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Delete",
-            f"Delete event type '{event_type['name']}'?"
+            "Confirm Deactivate",
+            f"Deactivate event type '{event_type['name']}'?"
         )
 
         if not confirm:
             return
 
-        self.app.settings_service.delete_event_type(
-            event_type["id"],
-            actor_id=self.app.current_user.id
-        )
+        try:
+            self.app.settings_service.delete_event_type(
+                event_type["id"],
+                actor_id=self.app.current_user.id
+            )
 
-        self.load_event_types()
+            self.load_event_types()
+
+        except Exception as e:
+            messagebox.showerror("Deactivate Failed", str(e))
 
     def add_booking_status(self, name):
         self.app.settings_service.add_booking_status(
@@ -6211,21 +6869,26 @@ class SettingsPage(ttk.Frame):
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Delete",
-            f"Delete booking status '{status['name']}'?"
+            "Confirm Deactivate",
+            f"Deactivate booking status '{status['name']}'?"
         )
 
         if not confirm:
             return
 
-        self.app.settings_service.delete_booking_status(
-            status["id"],
-            actor_id=self.app.current_user.id
-        )
+        try:
+            self.app.settings_service.delete_booking_status(
+                status["id"],
+                actor_id=self.app.current_user.id
+            )
 
-        self.load_booking_statuses()
+            self.load_booking_statuses()
+
+        except Exception as e:
+            messagebox.showerror("Deactivate Failed", str(e))
 
     def load_settings(self):
+        self.loading_settings = True
         settings = self.app.settings_service.get_all_settings()
 
         for key, widget_or_var in self.setting_vars.items():
@@ -6234,10 +6897,28 @@ class SettingsPage(ttk.Frame):
             if isinstance(widget_or_var, tk.Text):
                 widget_or_var.delete("1.0", "end")
                 widget_or_var.insert("1.0", value)
+                widget_or_var.edit_modified(False)
             else:
                 widget_or_var.set(value)
+
+        self.original_settings = self.collect_settings()
+        self.loading_settings = False
+
+        if hasattr(self, "last_backup_label"):
+            last_backup_at = settings.get("last_backup_at", "") or "None"
+            last_backup_file = settings.get("last_backup_file", "")
+
+            if last_backup_file:
+                self.last_backup_label.config(
+                    text=f"Last backup: {last_backup_at} - {last_backup_file}"
+                )
+            else:
+                self.last_backup_label.config(text=f"Last backup: {last_backup_at}")
+
+        self.load_backup_history()
         self.load_event_types()
         self.load_booking_statuses()
+        self.update_save_settings_button_state()
 
     def collect_settings(self):
         settings = {}
@@ -6279,6 +6960,12 @@ class SettingsPage(ttk.Frame):
             raise ValueError("Maximum reschedule count cannot be negative.")
 
     def save_settings(self):
+        selected_tab = self.notebook.tab(self.notebook.select(), "text")
+
+        if selected_tab == "Account":
+            self.save_account()
+            return
+
         try:
             settings = self.collect_settings()
             self.validate_settings(settings)
@@ -6287,6 +6974,8 @@ class SettingsPage(ttk.Frame):
                 settings,
                 actor_id=self.app.current_user.id
             )
+            self.original_settings = settings.copy()
+            self.update_save_settings_button_state()
 
             messagebox.showinfo(
                 "Settings Saved",
