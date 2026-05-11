@@ -55,6 +55,19 @@ class AuthService:
         password_hash, salt = self.hash_password(admin_password)
 
         with self.db.get_conn() as conn:
+            any_admin = conn.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE role = 'ADMIN'
+                  AND is_active = 1
+                LIMIT 1
+                """
+            ).fetchone()
+
+            if any_admin:
+                return
+
             existing_admin = conn.execute(
                 """
                 SELECT id
@@ -97,8 +110,8 @@ class AuthService:
                 (
                     "Panalo Styling Admin",
                     admin_username,
-                    None,
-                    None,
+                    "admin@panalo.local",
+                    "admin",
                     password_hash,
                     salt,
                     "ADMIN",
@@ -165,6 +178,127 @@ class AuthService:
         if role not in ["ADMIN", "STAFF"]:
             raise ValueError("Invalid role.")
 
+    def get_user_by_id(self, user_id: int):
+        with self.db.get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT id, full_name, username, role, created_at
+                FROM users
+                WHERE id = ?
+                """,
+                (user_id,)
+            ).fetchone()
+
+        if not row:
+            raise ValueError("User not found.")
+
+        return dict(row)
+
+    def update_own_account(self, user_id: int, full_name: str, username: str, current_password: str):
+        existing = self.get_user_by_id(user_id)
+
+        if not current_password:
+            raise ValueError("Current password is required.")
+
+        full_name = full_name.strip()
+        username = username.strip().lower()
+        role = existing["role"]
+
+        self.validate_user_data(full_name, username, role)
+
+        try:
+            with self.db.get_conn() as conn:
+                password_row = conn.execute(
+                    """
+                    SELECT password_hash, password_salt
+                    FROM users
+                    WHERE id = ?
+                    """,
+                    (user_id,)
+                ).fetchone()
+
+                if not password_row:
+                    raise ValueError("User not found.")
+
+                if not self.verify_password(
+                    current_password,
+                    password_row["password_hash"],
+                    password_row["password_salt"]
+                ):
+                    raise ValueError("Current password is incorrect.")
+
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET full_name = ?,
+                        username = ?
+                    WHERE id = ?
+                    """,
+                    (full_name, username, user_id)
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO audit_logs (user_id, action, details)
+                    VALUES (?, ?, ?)
+                    """,
+                    (user_id, "UPDATE_OWN_ACCOUNT", "Updated own account profile")
+                )
+
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise ValueError("Username already exists.")
+            raise
+
+        return SessionUser(
+            id=user_id,
+            full_name=full_name,
+            username=username,
+            role=role
+        )
+
+    def change_own_password(self, user_id: int, current_password: str, new_password: str):
+        if not current_password:
+            raise ValueError("Current password is required.")
+
+        self.validate_password(new_password)
+
+        with self.db.get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT password_hash, password_salt
+                FROM users
+                WHERE id = ?
+                """,
+                (user_id,)
+            ).fetchone()
+
+            if not row:
+                raise ValueError("User not found.")
+
+            if not self.verify_password(current_password, row["password_hash"], row["password_salt"]):
+                raise ValueError("Current password is incorrect.")
+
+            password_hash, salt = self.hash_password(new_password)
+
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?,
+                    password_salt = ?
+                WHERE id = ?
+                """,
+                (password_hash, salt, user_id)
+            )
+
+            conn.execute(
+                """
+                INSERT INTO audit_logs (user_id, action, details)
+                VALUES (?, ?, ?)
+                """,
+                (user_id, "CHANGE_OWN_PASSWORD", "Changed own password")
+            )
+
     def create_user_by_admin(
         self,
         actor_id: int,
@@ -195,8 +329,8 @@ class AuthService:
                     (
                         full_name,
                         username,
-                        None,
-                        None,
+                        f"{username}@panalo.local",
+                        username,
                         password_hash,
                         salt,
                         role,
