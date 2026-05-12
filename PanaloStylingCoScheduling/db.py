@@ -166,6 +166,17 @@ class Database:
                     FOREIGN KEY(verified_by) REFERENCES users(id),
                     FOREIGN KEY(created_by) REFERENCES users(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS bypass_pins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL UNIQUE,
+                    pin_hash TEXT NOT NULL,
+                    pin_salt TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
                 """
 
             )

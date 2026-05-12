@@ -1963,219 +1963,211 @@ class UserManagementPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
         super().__init__(parent)
         self.app = app
-        self.selected_user_id = None
         self.users_cache = []
-
         self.build_ui()
         self.load_users()
 
     def build_ui(self):
+        # ── Header ──────────────────────────────────────────
         header = ttk.Frame(self)
-        header.pack(fill="x", pady=(0, 15))
+        header.pack(fill="x", pady=(0, 10))
 
-        ttk.Label(
-            header,
-            text="User Management",
-            style="Header.TLabel"
-        ).pack(side="left")
+        ttk.Label(header, text="User Management", style="Header.TLabel").pack(side="left")
+        ttk.Button(header, text="＋ Add User", command=self.open_add_user_window).pack(side="right")
+        ttk.Button(header, text="↺ Refresh", command=self.load_users).pack(side="right", padx=(0, 6))
 
-        ttk.Button(
-            header,
-            text="Add User",
-            command=self.open_add_user_window
-        ).pack(side="right")
+        # ── Staff table ──────────────────────────────────────
+        cols = ("id", "full_name", "username", "role", "status", "bypass_pin")
+        self.table = ttk.Treeview(self, columns=cols, show="headings", height=13)
+        headings = ("ID", "Full Name", "Username", "Role", "Status", "Bypass PIN")
+        widths   = (50,   220,         160,        90,     80,       90)
+        for col, hd, wd in zip(cols, headings, widths):
+            self.table.heading(col, text=hd)
+            self.table.column(col, width=wd, anchor="w")
 
-        columns = ("id", "full_name", "username", "role")
-        self.table = ttk.Treeview(self, columns=columns, show="headings", height=14)
+        self.table.tag_configure("inactive", foreground="#999999")
+        self.table.tag_configure("has_pin",  foreground="#5a7a2e")
 
-        self.table.heading("id", text="ID")
-        self.table.heading("full_name", text="Full Name")
-        self.table.heading("username", text="Username")
-        self.table.heading("role", text="Role")
+        sb = ttk.Scrollbar(self, orient="vertical", command=self.table.yview)
+        self.table.configure(yscrollcommand=sb.set)
+        self.table.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
 
-        self.table.column("id", width=60)
-        self.table.column("full_name", width=250)
-        self.table.column("username", width=180)
-        self.table.column("role", width=100)
+        # ── Action bar ───────────────────────────────────────
+        action_col = tk.Frame(self, bg=APP_BG)
+        action_col.pack(side="left", fill="y", padx=(14, 0))
 
-        self.table.pack(fill="both", expand=True)
+        def act_btn(text, cmd, fg=TEXT_DARK):
+            b = tk.Button(
+                action_col, text=text, command=cmd,
+                bg="#f1eadc", fg=fg, activebackground="#e4ddd0",
+                bd=0, cursor="hand2", relief="flat",
+                font=("Segoe UI", 9), width=22, pady=7
+            )
+            b.pack(fill="x", pady=3)
+            return b
 
-        action_bar = ttk.Frame(self)
-        action_bar.pack(fill="x", pady=(12, 0))
+        tk.Label(action_col, text="Account", bg=APP_BG,
+                 fg=TEXT_MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(6, 2))
+        act_btn("✏  Edit User Info",     self.open_edit_user_window)
+        act_btn("👁  View Staff Details", self.open_staff_view_window)
 
-        ttk.Button(
-            action_bar,
-            text="Edit Selected User",
-            command=self.open_edit_user_window
-        ).pack(side="left")
+        tk.Label(action_col, text="Access", bg=APP_BG,
+                 fg=TEXT_MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(12, 2))
+        act_btn("🔑  Module Assignment",  self.open_privileges_window)
+        act_btn("🔓  Bypass PIN Setup",   self.open_bypass_pin_window)
 
-        ttk.Button(
-            action_bar,
-            text="Edit Privileges",
-            command=self.open_privileges_window
-        ).pack(side="left", padx=(8, 0))
+        tk.Label(action_col, text="Security", bg=APP_BG,
+                 fg=TEXT_MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(12, 2))
+        act_btn("🔒  Reset Password",     self.open_password_recovery_window, fg=DANGER_RED)
 
-        ttk.Button(
-            action_bar,
-            text="Refresh",
-            command=self.load_users
-        ).pack(side="right")
+    # ── Data ────────────────────────────────────────────────
 
     def load_users(self):
         for item in self.table.get_children():
             self.table.delete(item)
-
         self.users_cache = self.app.auth_service.list_users()
-
-        for user in self.users_cache:
-            self.table.insert(
-                "",
-                "end",
-                values=(
-                    user["id"],
-                    user["full_name"],
-                    user["username"],
-                    user["role"]
-                )
-            )
+        for u in self.users_cache:
+            status  = "Active"   if u.get("is_active", 1) else "Inactive"
+            has_pin = "✔ Set"    if u.get("has_bypass_pin") else "— None"
+            tag = "inactive" if not u.get("is_active", 1) else ("has_pin" if u.get("has_bypass_pin") else "normal")
+            self.table.insert("", "end", tags=(tag,),
+                values=(u["id"], u["full_name"], u["username"], u["role"], status, has_pin))
 
     def get_selected_user(self):
-        selected = self.table.selection()
-
-        if not selected:
+        sel = self.table.selection()
+        if not sel:
             messagebox.showwarning("No Selection", "Please select a user first.")
             return None
-
-        values = self.table.item(selected[0], "values")
-        user_id = int(values[0])
-
-        for user in self.users_cache:
-            if user["id"] == user_id:
-                return user
-
+        uid = int(self.table.item(sel[0], "values")[0])
+        for u in self.users_cache:
+            if u["id"] == uid:
+                return u
         return None
+
+    # ── Openers ─────────────────────────────────────────────
 
     def open_add_user_window(self):
         UserFormWindow(self.app, self, mode="add")
 
     def open_edit_user_window(self):
-        user = self.get_selected_user()
+        u = self.get_selected_user()
+        if u:
+            UserFormWindow(self.app, self, mode="edit", user=u)
 
-        if not user:
-            return
-
-        UserFormWindow(self.app, self, mode="edit", user=user)
+    def open_staff_view_window(self):
+        u = self.get_selected_user()
+        if u:
+            StaffViewWindow(self.app, u)
 
     def open_privileges_window(self):
-        user = self.get_selected_user()
+        u = self.get_selected_user()
+        if u:
+            PrivilegesWindow(self.app, self, u)
 
-        if not user:
-            return
+    def open_bypass_pin_window(self):
+        u = self.get_selected_user()
+        if u:
+            BypassPinWindow(self.app, self, u)
 
-        PrivilegesWindow(self.app, self, user)
+    def open_password_recovery_window(self):
+        u = self.get_selected_user()
+        if u:
+            PasswordRecoveryWindow(self.app, self, u)
 
 
 class UserFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: UserManagementPage, mode: str, user=None):
         super().__init__()
-
         self.app = app
         self.parent_page = parent_page
         self.mode = mode
         self.user = user
 
-        self.title("Add User" if mode == "add" else "Edit User")
-        self.geometry("460x500")
+        self.title("Add New User" if mode == "add" else "Edit User")
+        self.geometry("480x560")
         self.resizable(False, False)
+        self.configure(bg=APP_BG)
+        self.grab_set()
 
-        self.full_name_var = tk.StringVar(value=user["full_name"] if user else "")
-        self.username_var = tk.StringVar(value=user["username"] if user else "")
-        self.role_var = tk.StringVar(value=user["role"] if user else "STAFF")
-        self.password_var = tk.StringVar()
-
+        self.full_name_var   = tk.StringVar(value=user["full_name"]    if user else "")
+        self.username_var    = tk.StringVar(value=user["username"]     if user else "")
+        self.email_var       = tk.StringVar(value=user.get("email","") if user else "")
+        self.phone_var       = tk.StringVar(value=user.get("phone_number","") if user else "")
+        self.role_var        = tk.StringVar(value=user["role"]         if user else "STAFF")
+        self.is_active_var   = tk.IntVar(value=int(user.get("is_active",1)) if user else 1)
+        self.password_var    = tk.StringVar()
         self.password_visible = False
 
         self.build_ui()
 
+    def _field(self, parent, label, var, placeholder=""):
+        tk.Label(parent, text=label, bg=APP_BG, fg=TEXT_DARK,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8,1))
+        box = tk.Frame(parent, bg="white", highlightbackground=BORDER_SOFT, highlightthickness=1)
+        box.pack(fill="x")
+        e = tk.Entry(box, textvariable=var, bd=0, bg="white", fg=TEXT_DARK,
+                     insertbackground=TEXT_DARK, font=("Segoe UI", 10))
+        e.pack(fill="x", padx=8, pady=6)
+        return e
+
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        wrap = tk.Frame(self, bg=APP_BG, padx=24, pady=20)
+        wrap.pack(fill="both", expand=True)
 
-        ttk.Label(
-            frame,
-            text="Add User" if self.mode == "add" else "Edit User",
-            font=("Segoe UI", 18, "bold")
-        ).pack(anchor="w", pady=(0, 15))
+        tk.Label(wrap, text="Add New User" if self.mode=="add" else "Edit User",
+                 bg=APP_BG, fg=TEXT_DARK, font=("Georgia", 16, "bold")).pack(anchor="w", pady=(0,12))
 
-        ttk.Label(frame, text="Full Name").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.full_name_var).pack(fill="x", pady=(3, 10))
+        self._field(wrap, "Full Name *", self.full_name_var)
+        self._field(wrap, "Username *", self.username_var)
+        self._field(wrap, "Email", self.email_var)
+        self._field(wrap, "Phone Number", self.phone_var)
 
-        ttk.Label(frame, text="Username").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.username_var).pack(fill="x", pady=(3, 10))
+        tk.Label(wrap, text="Role *", bg=APP_BG, fg=TEXT_DARK,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8,1))
+        ttk.Combobox(wrap, textvariable=self.role_var,
+                     values=["ADMIN","STAFF"], state="readonly").pack(fill="x")
 
-        ttk.Label(frame, text="Role").pack(anchor="w")
-        ttk.Combobox(
-            frame,
-            textvariable=self.role_var,
-            values=["ADMIN", "STAFF"],
-            state="readonly"
-        ).pack(fill="x", pady=(3, 10))
+        pw_lbl = "Password *" if self.mode=="add" else "New Password  (leave blank to keep)"
+        tk.Label(wrap, text=pw_lbl, bg=APP_BG, fg=TEXT_DARK,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8,1))
+        pw_box = tk.Frame(wrap, bg="white", highlightbackground=BORDER_SOFT, highlightthickness=1)
+        pw_box.pack(fill="x")
+        self.pw_entry = tk.Entry(pw_box, textvariable=self.password_var, show="*",
+                                  bd=0, bg="white", fg=TEXT_DARK,
+                                  insertbackground=TEXT_DARK, font=("Segoe UI",10))
+        self.pw_entry.pack(side="left", fill="x", expand=True, padx=8, pady=6)
+        tk.Button(pw_box, text="👁", bd=0, bg="white", activebackground="white",
+                  command=self._toggle_pw, cursor="hand2").pack(side="right", padx=6)
 
-        password_label = "Password" if self.mode == "add" else "New Password, optional"
-        ttk.Label(frame, text=password_label).pack(anchor="w")
+        if self.mode == "edit":
+            tk.Checkbutton(wrap, text="Account is Active", variable=self.is_active_var,
+                           bg=APP_BG, fg=TEXT_DARK, activebackground=APP_BG,
+                           selectcolor=APP_BG, font=("Segoe UI",10)).pack(anchor="w", pady=(10,0))
 
-        password_box = tk.Frame(frame, bd=1, relief="solid", bg="white")
-        password_box.pack(fill="x", pady=(3, 15))
+        tk.Button(wrap, text="Save", command=self.save_user,
+                  bg=ACCENT_OLIVE, fg="white", activebackground="#5a6435",
+                  bd=0, cursor="hand2", font=("Segoe UI",11,"bold"),
+                  height=2).pack(fill="x", pady=(16,0))
 
-        self.password_entry = tk.Entry(
-            password_box,
-            textvariable=self.password_var,
-            show="*",
-            relief="flat",
-            bg="white"
-        )
-        self.password_entry.pack(side="left", fill="x", expand=True, padx=(6, 2), pady=5)
-
-        self.eye_button = tk.Button(
-            password_box,
-            text="👁",
-            bd=0,
-            bg="white",
-            activebackground="white",
-            command=self.toggle_password
-        )
-        self.eye_button.pack(side="right", padx=(2, 6))
-
-        ttk.Button(
-            frame,
-            text="Save",
-            command=self.save_user
-        ).pack(fill="x", pady=(5, 0))
-
-    def toggle_password(self):
+    def _toggle_pw(self):
         self.password_visible = not self.password_visible
-
-        if self.password_visible:
-            self.password_entry.config(show="")
-            self.eye_button.config(text="🙈")
-        else:
-            self.password_entry.config(show="*")
-            self.eye_button.config(text="👁")
+        self.pw_entry.config(show="" if self.password_visible else "*")
 
     def save_user(self):
         try:
             actor_id = self.app.current_user.id
-
             if self.mode == "add":
                 self.app.auth_service.create_user_by_admin(
                     actor_id=actor_id,
                     full_name=self.full_name_var.get(),
                     username=self.username_var.get(),
                     password=self.password_var.get(),
-                    role=self.role_var.get()
+                    role=self.role_var.get(),
+                    email=self.email_var.get(),
+                    phone_number=self.phone_var.get(),
                 )
                 messagebox.showinfo("Success", "User account created successfully.")
-
             else:
                 self.app.auth_service.update_user_by_admin(
                     actor_id=actor_id,
@@ -2183,92 +2175,307 @@ class UserFormWindow(tk.Toplevel):
                     full_name=self.full_name_var.get(),
                     username=self.username_var.get(),
                     role=self.role_var.get(),
-                    new_password=self.password_var.get().strip() or None
+                    email=self.email_var.get(),
+                    phone_number=self.phone_var.get(),
+                    is_active=self.is_active_var.get(),
+                    new_password=self.password_var.get().strip() or None,
                 )
                 messagebox.showinfo("Success", "User account updated successfully.")
-
             self.parent_page.load_users()
             self.destroy()
-
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+
 
 
 class PrivilegesWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: UserManagementPage, user):
         super().__init__()
-
         self.app = app
         self.parent_page = parent_page
         self.user = user
-
-        self.title("Edit User Privileges")
-        self.geometry("420x520")
+        self.title(f"Module Assignment — {user['full_name']}")
+        self.geometry("420x540")
         self.resizable(False, False)
-
+        self.configure(bg=APP_BG)
+        self.grab_set()
         self.permission_vars = {}
-
         self.build_ui()
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=20)
-        frame.pack(fill="both", expand=True)
+        wrap = tk.Frame(self, bg=APP_BG, padx=24, pady=20)
+        wrap.pack(fill="both", expand=True)
 
-        ttk.Label(
-            frame,
-            text="Edit Privileges",
-            font=("Segoe UI", 18, "bold")
-        ).pack(anchor="w", pady=(0, 5))
+        tk.Label(wrap, text="Module Assignment", bg=APP_BG, fg=TEXT_DARK,
+                 font=("Georgia", 16, "bold")).pack(anchor="w")
+        tk.Label(wrap, text=f"User: {self.user['full_name']}  ({self.user['role']})",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 14))
 
-        ttk.Label(
-            frame,
-            text=f"User: {self.user['full_name']}",
-            font=("Segoe UI", 10)
-        ).pack(anchor="w", pady=(0, 15))
+        tk.Label(wrap, text="Enable or disable access to each module:",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
 
-        allowed = self.app.auth_service.get_user_permissions(
-            self.user["id"],
-            self.user["role"]
-        )
+        allowed = self.app.auth_service.get_user_permissions(self.user["id"], self.user["role"])
+
+        box = tk.Frame(wrap, bg=APP_BG)
+        box.pack(fill="x")
 
         for module in APP_MODULES:
+            row = tk.Frame(box, bg=APP_BG)
+            row.pack(fill="x", pady=3)
             var = tk.IntVar(value=1 if module in allowed else 0)
             self.permission_vars[module] = var
+            tk.Checkbutton(
+                row, text=module, variable=var,
+                bg=APP_BG, fg=TEXT_DARK, activebackground=APP_BG,
+                selectcolor=APP_BG, font=("Segoe UI", 10), anchor="w"
+            ).pack(side="left")
 
-            ttk.Checkbutton(
-                frame,
-                text=module,
-                variable=var
-            ).pack(anchor="w", pady=3)
-
-        ttk.Button(
-            frame,
-            text="Save Privileges",
-            command=self.save_privileges
-        ).pack(fill="x", pady=(20, 0))
+        tk.Button(wrap, text="Save Module Assignment", command=self.save_privileges,
+                  bg=ACCENT_OLIVE, fg="white", activebackground="#5a6435",
+                  bd=0, cursor="hand2", font=("Segoe UI", 11, "bold"),
+                  height=2).pack(fill="x", pady=(20, 0))
 
     def save_privileges(self):
         try:
-            permissions = {
-                module: var.get()
-                for module, var in self.permission_vars.items()
-            }
-
+            permissions = {m: v.get() for m, v in self.permission_vars.items()}
             self.app.auth_service.set_user_permissions(
                 actor_id=self.app.current_user.id,
                 user_id=self.user["id"],
                 permissions=permissions
             )
-
-            messagebox.showinfo(
-                "Success",
-                "User privileges updated successfully. Changes will apply on next login."
-            )
-
+            messagebox.showinfo("Saved", "Module assignments updated.\nChanges apply on next login.")
+            self.parent_page.load_users()
             self.destroy()
-
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+
+class StaffViewWindow(tk.Toplevel):
+    """Read-only staff profile viewer."""
+    def __init__(self, app: PanaloApp, user: dict):
+        super().__init__()
+        self.app = app
+        self.user = user
+        self.title(f"Staff Profile — {user['full_name']}")
+        self.geometry("420x500")
+        self.resizable(False, False)
+        self.configure(bg=APP_BG)
+        self.grab_set()
+        self.build_ui()
+
+    def build_ui(self):
+        wrap = tk.Frame(self, bg=APP_BG, padx=28, pady=22)
+        wrap.pack(fill="both", expand=True)
+
+        # Avatar circle
+        av = tk.Canvas(wrap, width=64, height=64, bg=APP_BG, highlightthickness=0)
+        av.pack(anchor="w")
+        av.create_oval(0, 0, 64, 64, fill=ACCENT_OLIVE, outline="")
+        initials = "".join(p[0].upper() for p in self.user["full_name"].split()[:2])
+        av.create_text(32, 32, text=initials, fill="white", font=("Georgia", 22, "bold"))
+
+        tk.Label(wrap, text=self.user["full_name"], bg=APP_BG, fg=TEXT_DARK,
+                 font=("Georgia", 15, "bold")).pack(anchor="w", pady=(8, 0))
+        tk.Label(wrap, text=f"@{self.user['username']}  ·  {self.user['role']}",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 10)).pack(anchor="w")
+
+        sep = tk.Frame(wrap, height=1, bg=BORDER_SOFT)
+        sep.pack(fill="x", pady=14)
+
+        def row(label, val):
+            r = tk.Frame(wrap, bg=APP_BG)
+            r.pack(fill="x", pady=3)
+            tk.Label(r, text=label, bg=APP_BG, fg=TEXT_MUTED,
+                     font=("Segoe UI", 9), width=16, anchor="w").pack(side="left")
+            tk.Label(r, text=val or "—", bg=APP_BG, fg=TEXT_DARK,
+                     font=("Segoe UI", 10)).pack(side="left")
+
+        row("Email",        self.user.get("email") or "")
+        row("Phone",        self.user.get("phone_number") or "")
+        row("Status",       "Active" if self.user.get("is_active", 1) else "Inactive")
+        row("Bypass PIN",   "Set ✔" if self.user.get("has_bypass_pin") else "Not set")
+        row("Created",      str(self.user.get("created_at",""))[:10])
+
+        sep2 = tk.Frame(wrap, height=1, bg=BORDER_SOFT)
+        sep2.pack(fill="x", pady=14)
+
+        tk.Label(wrap, text="Assigned Modules:", bg=APP_BG, fg=TEXT_MUTED,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
+
+        allowed = self.app.auth_service.get_user_permissions(self.user["id"], self.user["role"])
+        mods_text = "  ·  ".join(sorted(allowed)) if allowed else "No modules assigned"
+        tk.Label(wrap, text=mods_text, bg=APP_BG, fg=TEXT_DARK,
+                 font=("Segoe UI", 9), wraplength=350, justify="left").pack(anchor="w")
+
+        tk.Button(wrap, text="Close", command=self.destroy,
+                  bg=BORDER_SOFT, fg=TEXT_DARK, bd=0, cursor="hand2",
+                  font=("Segoe UI", 10), height=2).pack(fill="x", pady=(18, 0))
+
+
+class BypassPinWindow(tk.Toplevel):
+    """Admin sets or removes a bypass PIN for a user."""
+    def __init__(self, app: PanaloApp, parent_page: UserManagementPage, user: dict):
+        super().__init__()
+        self.app = app
+        self.parent_page = parent_page
+        self.user = user
+        self.title(f"Bypass PIN — {user['full_name']}")
+        self.geometry("400x360")
+        self.resizable(False, False)
+        self.configure(bg=APP_BG)
+        self.grab_set()
+        self.pin_var     = tk.StringVar()
+        self.confirm_var = tk.StringVar()
+        self.build_ui()
+
+    def build_ui(self):
+        wrap = tk.Frame(self, bg=APP_BG, padx=28, pady=22)
+        wrap.pack(fill="both", expand=True)
+
+        tk.Label(wrap, text="Bypass PIN Setup", bg=APP_BG, fg=TEXT_DARK,
+                 font=("Georgia", 16, "bold")).pack(anchor="w")
+        tk.Label(wrap, text=f"User: {self.user['full_name']}", bg=APP_BG, fg=TEXT_MUTED,
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 4))
+
+        has_pin = self.user.get("has_bypass_pin", False)
+        status_color = "#5a7a2e" if has_pin else TEXT_MUTED
+        status_text  = "● Bypass PIN is currently SET" if has_pin else "○ No bypass PIN set"
+        tk.Label(wrap, text=status_text, bg=APP_BG, fg=status_color,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 12))
+
+        tk.Label(wrap,
+                 text="A bypass PIN (4–6 digits) lets this authorized user\noverride system restrictions when required.",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 9),
+                 justify="left").pack(anchor="w", pady=(0, 12))
+
+        def pin_field(label, var):
+            tk.Label(wrap, text=label, bg=APP_BG, fg=TEXT_DARK,
+                     font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(6, 1))
+            box = tk.Frame(wrap, bg="white", highlightbackground=BORDER_SOFT, highlightthickness=1)
+            box.pack(fill="x")
+            tk.Entry(box, textvariable=var, show="●", bd=0, bg="white",
+                     fg=TEXT_DARK, font=("Segoe UI", 13),
+                     justify="center").pack(fill="x", padx=8, pady=7)
+
+        pin_field("New PIN (4–6 digits)", self.pin_var)
+        pin_field("Confirm PIN",          self.confirm_var)
+
+        tk.Button(wrap, text="Set Bypass PIN", command=self.set_pin,
+                  bg=ACCENT_OLIVE, fg="white", activebackground="#5a6435",
+                  bd=0, cursor="hand2", font=("Segoe UI", 10, "bold"),
+                  height=2).pack(fill="x", pady=(14, 4))
+
+        if has_pin:
+            tk.Button(wrap, text="Remove Bypass PIN", command=self.remove_pin,
+                      bg="#f3e4de", fg=DANGER_RED, activebackground="#edd8d2",
+                      bd=0, cursor="hand2", font=("Segoe UI", 10),
+                      height=2).pack(fill="x")
+
+    def set_pin(self):
+        pin     = self.pin_var.get().strip()
+        confirm = self.confirm_var.get().strip()
+        if pin != confirm:
+            messagebox.showerror("Mismatch", "PINs do not match.")
+            return
+        try:
+            self.app.auth_service.set_bypass_pin(
+                actor_id=self.app.current_user.id,
+                target_user_id=self.user["id"],
+                pin=pin
+            )
+            messagebox.showinfo("Done", f"Bypass PIN set for {self.user['full_name']}.")
+            self.parent_page.load_users()
+            self.destroy()
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+    def remove_pin(self):
+        if not messagebox.askyesno("Confirm", f"Remove bypass PIN for {self.user['full_name']}?"):
+            return
+        try:
+            self.app.auth_service.remove_bypass_pin(
+                actor_id=self.app.current_user.id,
+                target_user_id=self.user["id"]
+            )
+            messagebox.showinfo("Done", "Bypass PIN removed.")
+            self.parent_page.load_users()
+            self.destroy()
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+
+class PasswordRecoveryWindow(tk.Toplevel):
+    """Admin resets a staff member's forgotten password."""
+    def __init__(self, app: PanaloApp, parent_page: UserManagementPage, user: dict):
+        super().__init__()
+        self.app = app
+        self.parent_page = parent_page
+        self.user = user
+        self.title(f"Reset Password — {user['full_name']}")
+        self.geometry("420x380")
+        self.resizable(False, False)
+        self.configure(bg=APP_BG)
+        self.grab_set()
+        self.new_pw_var    = tk.StringVar()
+        self.confirm_pw_var = tk.StringVar()
+        self.build_ui()
+
+    def build_ui(self):
+        wrap = tk.Frame(self, bg=APP_BG, padx=28, pady=22)
+        wrap.pack(fill="both", expand=True)
+
+        tk.Label(wrap, text="🔒  Password Recovery", bg=APP_BG, fg=TEXT_DARK,
+                 font=("Georgia", 16, "bold")).pack(anchor="w")
+        tk.Label(wrap, text=f"Staff account: {self.user['full_name']}  (@{self.user['username']})",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 10)).pack(anchor="w", pady=(3, 14))
+
+        tk.Label(wrap,
+                 text="Set a new password for this staff account.\nThe staff member can change it after logging in.",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 9), justify="left").pack(anchor="w", pady=(0, 10))
+
+        def pw_field(label, var):
+            tk.Label(wrap, text=label, bg=APP_BG, fg=TEXT_DARK,
+                     font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 1))
+            box = tk.Frame(wrap, bg="white", highlightbackground=BORDER_SOFT, highlightthickness=1)
+            box.pack(fill="x")
+            e = tk.Entry(box, textvariable=var, show="*", bd=0, bg="white",
+                         fg=TEXT_DARK, insertbackground=TEXT_DARK, font=("Segoe UI", 10))
+            e.pack(fill="x", padx=8, pady=6)
+            return e
+
+        pw_field("New Password *", self.new_pw_var)
+        pw_field("Confirm New Password *", self.confirm_pw_var)
+
+        tk.Label(wrap,
+                 text="Min 8 chars · uppercase · lowercase · number · special char",
+                 bg=APP_BG, fg=TEXT_MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(4, 0))
+
+        tk.Button(wrap, text="Reset Password", command=self.reset_password,
+                  bg=DANGER_RED, fg="white", activebackground="#7a1818",
+                  bd=0, cursor="hand2", font=("Segoe UI", 11, "bold"),
+                  height=2).pack(fill="x", pady=(16, 0))
+
+    def reset_password(self):
+        new_pw  = self.new_pw_var.get()
+        confirm = self.confirm_pw_var.get()
+        if new_pw != confirm:
+            messagebox.showerror("Mismatch", "Passwords do not match.")
+            return
+        try:
+            self.app.auth_service.reset_password_by_admin(
+                actor_id=self.app.current_user.id,
+                target_user_id=self.user["id"],
+                new_password=new_pw
+            )
+            messagebox.showinfo("Done",
+                f"Password for {self.user['full_name']} has been reset successfully.\n"
+                "Please inform the staff member of the new password.")
+            self.destroy()
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+
 
 class SimpleNameWindow(tk.Toplevel):
     def __init__(self, parent, title, label, save_callback, initial_value=""):
