@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from db import Database
 
@@ -604,4 +604,234 @@ class ReportsService:
             "schedule": self.get_schedule_summary(),
             "client": self.get_client_summary(),
             "packages": self.get_package_performance(),
+        }
+
+    def ensure_system_health_tables(self):
+        with self.db.get_conn() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS system_errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    error_type TEXT,
+                    error_message TEXT,
+                    source TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def get_audit_logs(self, limit=50):
+        with self.db.get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    a.id,
+                    a.action,
+                    a.details,
+                    a.created_at,
+                    u.full_name AS user_name,
+                    u.role AS user_role
+                FROM audit_logs a
+                LEFT JOIN users u ON a.user_id = u.id
+                ORDER BY a.id DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def get_system_errors(self, limit=50):
+        self.ensure_system_health_tables()
+
+        with self.db.get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    error_type,
+                    error_message,
+                    source,
+                    created_at
+                FROM system_errors
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def log_system_error(self, error_type, error_message, source="Application"):
+        self.ensure_system_health_tables()
+
+        with self.db.get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO system_errors (
+                    error_type,
+                    error_message,
+                    source
+                )
+                VALUES (?, ?, ?)
+                """,
+                (
+                    str(error_type or ""),
+                    str(error_message or ""),
+                    str(source or "Application")
+                )
+            )
+
+    def get_system_health_summary(self):
+        self.ensure_system_health_tables()
+
+        today_text = date.today().strftime("%Y-%m-%d")
+        week_start = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        with self.db.get_conn() as conn:
+            audit_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM audit_logs
+                """
+            ).fetchone()["count"]
+
+            audit_today = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM audit_logs
+                WHERE DATE(created_at) = ?
+                """,
+                (today_text,)
+            ).fetchone()["count"]
+
+            error_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM system_errors
+                """
+            ).fetchone()["count"]
+
+            errors_this_week = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM system_errors
+                WHERE DATE(created_at) >= ?
+                """,
+                (week_start,)
+            ).fetchone()["count"]
+
+            active_users = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM users
+                WHERE is_active = 1
+                """
+            ).fetchone()["count"]
+
+        return {
+            "audit_count": audit_count,
+            "audit_today": audit_today,
+            "error_count": error_count,
+            "errors_this_week": errors_this_week,
+            "active_users": active_users
+        }
+
+    def get_payment_health_summary(self):
+        payment = self.get_payment_summary()
+
+        expected_revenue = float(payment["expected_revenue"] or 0)
+        verified_paid = float(payment["verified_paid"] or 0)
+        pending_payment = float(payment["pending_payment"] or 0)
+        total_balance = float(payment["total_balance"] or 0)
+        refunded_amount = float(payment["refunded_amount"] or 0)
+
+        if expected_revenue > 0:
+            collection_rate = (verified_paid / expected_revenue) * 100
+            balance_rate = (total_balance / expected_revenue) * 100
+        else:
+            collection_rate = 0
+            balance_rate = 0
+
+        return {
+            "expected_revenue": expected_revenue,
+            "verified_paid": verified_paid,
+            "pending_payment": pending_payment,
+            "total_balance": total_balance,
+            "refunded_amount": refunded_amount,
+            "collection_rate": collection_rate,
+            "balance_rate": balance_rate,
+            "paid_count": payment["paid_count"],
+            "partial_count": payment["partial_count"],
+            "unpaid_count": payment["unpaid_count"]
+        }
+
+    def get_payment_breakdown_by_status(self):
+        with self.db.get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    verification_status,
+                    COUNT(*) AS transaction_count,
+                    COALESCE(SUM(amount), 0) AS total_amount
+                FROM payments
+                GROUP BY verification_status
+                ORDER BY transaction_count DESC
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def get_payment_breakdown_by_method(self):
+        with self.db.get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    payment_method,
+                    COUNT(*) AS transaction_count,
+                    COALESCE(SUM(amount), 0) AS total_amount
+                FROM payments
+                GROUP BY payment_method
+                ORDER BY total_amount DESC
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def get_weekly_report_data(self):
+        today = date.today()
+        start = today - timedelta(days=6)
+
+        start_date = start.strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+
+        dashboard = self.get_dashboard_data(start_date, end_date)
+
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "dashboard": dashboard,
+            "payment_health": self.get_payment_health_summary(),
+            "system_health": self.get_system_health_summary()
+        }
+
+    def get_enhanced_reports(self):
+        booking = self.get_booking_summary()
+        payment = self.get_payment_summary()
+        schedule = self.get_schedule_summary()
+        client = self.get_client_summary()
+        packages = self.get_package_performance()
+
+        return {
+            "booking": booking,
+            "payment": payment,
+            "payment_health": self.get_payment_health_summary(),
+            "payment_by_status": self.get_payment_breakdown_by_status(),
+            "payment_by_method": self.get_payment_breakdown_by_method(),
+            "schedule": schedule,
+            "client": client,
+            "packages": packages,
+            "audit_logs": self.get_audit_logs(),
+            "system_errors": self.get_system_errors(),
+            "system_health": self.get_system_health_summary()
         }

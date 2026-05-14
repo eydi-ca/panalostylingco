@@ -2,12 +2,11 @@ import json
 import tkinter as tk
 import calendar
 import os
-import csv
 import json
 from PIL import Image, ImageTk
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 
 from auth_service import AuthService
 from db import Database
@@ -86,7 +85,8 @@ TIME_OPTIONS = [
     "10:00 PM"
 ]
 
-PAYMENT_REFERENCE_MAX_LENGTH = 20
+PAYMENT_REFERENCE_MAX_LENGTH = 30
+
 
 def format_number_with_commas(value):
     """
@@ -158,10 +158,12 @@ def limit_text_length(max_length):
     Usage:
     vcmd = (self.register(limit_text_length(30)), "%P")
     """
+
     def validator(value):
         return len(value) <= max_length
 
     return validator
+
 
 def apply_money_typing_format(entry_widget, variable):
     """
@@ -182,6 +184,7 @@ def apply_money_typing_format(entry_widget, variable):
             entry_widget.icursor(min(cursor_position + 1, len(formatted_value)))
         except Exception:
             entry_widget.icursor(tk.END)
+
 
 def format_number_with_commas(value):
     if value is None:
@@ -252,8 +255,6 @@ def apply_money_typing_format(entry_widget, variable):
             entry_widget.icursor(tk.END)
 
 
-
-
 class PanaloApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -263,9 +264,8 @@ class PanaloApp(tk.Tk):
         self.title("Panalo Styling Co. Admin System")
         self.configure(bg=APP_BG)
         self.configure_app_styles()
-        self.geometry("900x800")
-        self.minsize(880, 760)
-        self.resizable(False, False)
+        self.geometry("1100x700")
+        self.minsize(950, 600)
 
         self.db = Database()
         self.auth_service = AuthService(self.db)
@@ -402,7 +402,6 @@ class PanaloApp(tk.Tk):
             background=[("selected", SIDEBAR_ACTIVE_BG)],
             foreground=[("selected", TEXT_DARK)]
         )
-
 
     def show_login_page(self):
         self.clear_container()
@@ -1060,17 +1059,12 @@ class DashboardPage(ttk.Frame):
 
         ttk.Label(filter_bar, text="From").pack(side="left")
 
-        self.start_date_entry = ttk.Entry(
+        ttk.Entry(
             filter_bar,
             textvariable=self.start_date_var,
-            width=14
-        )
-        self.start_date_entry.pack(side="left", padx=(6, 4))
-
-        self.start_date_entry.bind(
-            "<Return>",
-            lambda event: self.load_dashboard()
-        )
+            width=14,
+            state="readonly"
+        ).pack(side="left", padx=(6, 4))
 
         ttk.Button(
             filter_bar,
@@ -1080,17 +1074,12 @@ class DashboardPage(ttk.Frame):
 
         ttk.Label(filter_bar, text="To").pack(side="left")
 
-        self.end_date_entry = ttk.Entry(
+        ttk.Entry(
             filter_bar,
             textvariable=self.end_date_var,
-            width=14
-        )
-        self.end_date_entry.pack(side="left", padx=(6, 4))
-
-        self.end_date_entry.bind(
-            "<Return>",
-            lambda event: self.load_dashboard()
-        )
+            width=14,
+            state="readonly"
+        ).pack(side="left", padx=(6, 4))
 
         ttk.Button(
             filter_bar,
@@ -1180,18 +1169,21 @@ class DashboardPage(ttk.Frame):
         )
 
     def bind_dashboard_mousewheel(self, event=None):
-        self.bind_all("<MouseWheel>", self.on_dashboard_mousewheel)
+        try:
+            self.bind_all("<MouseWheel>", self.on_dashboard_mousewheel)
+        except tk.TclError:
+            pass
 
     def unbind_dashboard_mousewheel(self, event=None):
         try:
             self.unbind_all("<MouseWheel>")
-        except Exception:
+        except tk.TclError:
             pass
 
     def cleanup_dashboard_bindings(self, event=None):
         try:
             self.unbind_all("<MouseWheel>")
-        except Exception:
+        except tk.TclError:
             pass
 
     def on_dashboard_mousewheel(self, event):
@@ -1713,7 +1705,7 @@ class DashboardPage(ttk.Frame):
                     item["event_type"] or "",
                     item["status"] or ""
                 ),
-                tags = ("normal",)
+                tags=("normal",)
             )
 
         recent_table = self.create_table(
@@ -1785,7 +1777,7 @@ class DashboardPage(ttk.Frame):
                     item["booking_count"],
                     self.format_price(item["revenue"])
                 ),
-                tags = ("normal",)
+                tags=("normal",)
             )
 
         upcoming_table = self.create_table(
@@ -1808,6 +1800,7 @@ class DashboardPage(ttk.Frame):
                 ),
                 tags=("normal",)
             )
+
 
 class MainSystemPage(tk.Frame):
     SIDEBAR_WIDTH = 255
@@ -2167,8 +2160,8 @@ class MainSystemPage(tk.Frame):
             font=("Segoe MDL2 Assets", 16),
             width=3,
             cursor="hand2",
-            bd = 0,
-            highlightthickness = 0
+            bd=0,
+            highlightthickness=0
         )
         icon_label.pack(side="left", padx=(13, 8), pady=8)
         icon_label.bind(
@@ -2188,8 +2181,8 @@ class MainSystemPage(tk.Frame):
                 font=("Georgia", 13),
                 anchor="w",
                 cursor="hand2",
-                bd = 0,
-                highlightthickness = 0
+                bd=0,
+                highlightthickness=0
             )
             label_widget.pack(anchor="w")
 
@@ -2699,6 +2692,7 @@ class PrivilegesWindow(tk.Toplevel):
         except ValueError as e:
             messagebox.showerror("Error", str(e))
 
+
 class SimpleNameWindow(tk.Toplevel):
     def __init__(self, parent, title, label, save_callback, initial_value=""):
         super().__init__()
@@ -2758,6 +2752,7 @@ class SimpleNameWindow(tk.Toplevel):
         except ValueError as e:
             messagebox.showerror("Error", str(e))
 
+
 class ClientsPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
         super().__init__(parent)
@@ -2765,7 +2760,6 @@ class ClientsPage(ttk.Frame):
         self.app = app
         self.clients_cache = []
         self.search_var = tk.StringVar()
-        self.client_form_window = None
 
         self.build_ui()
         self.load_clients()
@@ -2791,17 +2785,12 @@ class ClientsPage(ttk.Frame):
 
         ttk.Label(search_bar, text="Search").pack(side="left")
 
-        self.search_entry = ttk.Entry(
+        search_entry = ttk.Entry(
             search_bar,
             textvariable=self.search_var,
             width=35
         )
-        self.search_entry.pack(side="left", padx=(8, 8))
-
-        self.search_entry.bind(
-            "<Return>",
-            lambda event: self.search_clients()
-        )
+        search_entry.pack(side="left", padx=(8, 8))
 
         ttk.Button(
             search_bar,
@@ -2820,7 +2809,6 @@ class ClientsPage(ttk.Frame):
             "full_name",
             "contact_number",
             "notes",
-            "created_by",
             "created_at"
         )
 
@@ -2835,14 +2823,12 @@ class ClientsPage(ttk.Frame):
         self.table.heading("full_name", text="Client Name")
         self.table.heading("contact_number", text="Contact")
         self.table.heading("notes", text="Notes")
-        self.table.heading("created_by", text="Added By")
         self.table.heading("created_at", text="Created At")
 
         self.table.column("id", width=50, anchor="center")
         self.table.column("full_name", width=220)
         self.table.column("contact_number", width=140)
         self.table.column("notes", width=350)
-        self.table.column("created_by", width=160)
         self.table.column("created_at", width=150)
 
         self.table.tag_configure(
@@ -2868,6 +2854,8 @@ class ClientsPage(ttk.Frame):
             command=self.load_clients
         ).pack(side="right")
 
+        search_entry.bind("<Return>", lambda event: self.search_clients())
+
     def load_clients(self):
         for item in self.table.get_children():
             self.table.delete(item)
@@ -2883,7 +2871,6 @@ class ClientsPage(ttk.Frame):
                     client["full_name"],
                     client["contact_number"] or "",
                     client["notes"] or "",
-                    client["created_by_name"] or "Unknown",
                     client["created_at"] or ""
                 ),
                 tags=("normal",)
@@ -2906,7 +2893,6 @@ class ClientsPage(ttk.Frame):
                     client["full_name"],
                     client["contact_number"] or "",
                     client["notes"] or "",
-                    client["created_by_name"] or "Unknown",
                     client["created_at"] or ""
                 ),
                 tags=("normal",)
@@ -2935,20 +2921,10 @@ class ClientsPage(ttk.Frame):
         return client
 
     def open_add_client_window(self):
-        if self.client_form_window and self.client_form_window.winfo_exists():
-            self.client_form_window.lift()
-            self.client_form_window.focus_force()
-            return
-
-        self.client_form_window = ClientFormWindow(
+        ClientFormWindow(
             app=self.app,
             parent_page=self,
             mode="add"
-        )
-
-        self.client_form_window.protocol(
-            "WM_DELETE_WINDOW",
-            self.on_client_form_closed
         )
 
     def open_edit_client_window(self):
@@ -2957,28 +2933,12 @@ class ClientsPage(ttk.Frame):
         if not client:
             return
 
-        if self.client_form_window and self.client_form_window.winfo_exists():
-            self.client_form_window.lift()
-            self.client_form_window.focus_force()
-            return
-
-        self.client_form_window = ClientFormWindow(
+        ClientFormWindow(
             app=self.app,
             parent_page=self,
             mode="edit",
             client=client
         )
-
-        self.client_form_window.protocol(
-            "WM_DELETE_WINDOW",
-            self.on_client_form_closed
-        )
-
-        def on_client_form_closed(self):
-            if self.client_form_window and self.client_form_window.winfo_exists():
-                self.client_form_window.destroy()
-
-            self.client_form_window = None
 
 
 class DatePickerWindow(tk.Toplevel):
@@ -3026,15 +2986,9 @@ class DatePickerWindow(tk.Toplevel):
         self.month_label = ttk.Label(
             nav,
             text="",
-            font=("Segoe UI", 14, "bold"),
-            cursor="hand2"
+            font=("Segoe UI", 14, "bold")
         )
         self.month_label.pack(side="left", expand=True)
-
-        self.month_label.bind(
-            "<Button-1>",
-            lambda event: self.open_month_year_picker()
-        )
 
         ttk.Button(
             nav,
@@ -3066,19 +3020,6 @@ class DatePickerWindow(tk.Toplevel):
             relief="solid",
             bd=1
         ).pack(side="left")
-
-    def open_month_year_picker(self):
-        MonthYearPickerWindow(
-            parent=self,
-            current_year=self.current_year,
-            current_month=self.current_month,
-            on_select=self.set_month_year
-        )
-
-    def set_month_year(self, selected_year, selected_month):
-        self.current_year = selected_year
-        self.current_month = selected_month
-        self.render_calendar()
 
     def previous_month(self):
         self.current_month -= 1
@@ -3179,7 +3120,8 @@ class DatePickerWindow(tk.Toplevel):
                     bd=1,
                     width=6,
                     height=2,
-                    command=lambda selected=current_date, unavailable=is_unavailable: self.select_date(selected, unavailable)
+                    command=lambda selected=current_date, unavailable=is_unavailable: self.select_date(selected,
+                                                                                                       unavailable)
                 )
                 btn.grid(
                     row=row_index,
@@ -3202,6 +3144,7 @@ class DatePickerWindow(tk.Toplevel):
 
         self.target_var.set(selected_date.strftime("%Y-%m-%d"))
         self.destroy()
+
 
 class ClientFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: ClientsPage, mode: str, client=None):
@@ -3256,7 +3199,7 @@ class ClientFormWindow(tk.Toplevel):
         ttk.Button(
             button_row,
             text="Cancel",
-            command=self.close_window
+            command=self.destroy
         ).pack(side="right")
 
         ttk.Button(
@@ -3264,12 +3207,6 @@ class ClientFormWindow(tk.Toplevel):
             text="Confirm",
             command=self.save_client
         ).pack(side="right", padx=(0, 8))
-
-    def close_window(self):
-        if hasattr(self.parent_page, "client_form_window"):
-            self.parent_page.client_form_window = None
-
-        self.destroy()
 
     def save_client(self):
         try:
@@ -3309,10 +3246,11 @@ class ClientFormWindow(tk.Toplevel):
                 messagebox.showinfo("Success", "Client updated successfully.")
 
             self.parent_page.load_clients()
-            self.close_window()
+            self.destroy()
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
 
 class PackagesPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
@@ -3502,6 +3440,7 @@ class PackagesPage(ttk.Frame):
             package=package
         )
 
+
 class PackageFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: PackagesPage, mode: str, package=None):
         super().__init__()
@@ -3517,8 +3456,10 @@ class PackageFormWindow(tk.Toplevel):
 
         self.package_name_var = tk.StringVar(value=package["package_name"] if package else "")
         self.recommended_pax_var = tk.StringVar(value=package["recommended_pax"] if package else "")
-        self.min_price_var = tk.StringVar(value=str(package["min_price"]) if package and package["min_price"] is not None else "")
-        self.max_price_var = tk.StringVar(value=str(package["max_price"]) if package and package["max_price"] is not None else "")
+        self.min_price_var = tk.StringVar(
+            value=str(package["min_price"]) if package and package["min_price"] is not None else "")
+        self.max_price_var = tk.StringVar(
+            value=str(package["max_price"]) if package and package["max_price"] is not None else "")
 
         self.build_ui()
 
@@ -3617,6 +3558,7 @@ class PackageFormWindow(tk.Toplevel):
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
 
 class BookingsPage(ttk.Frame):
     def __init__(self, parent, app: PanaloApp):
@@ -3822,6 +3764,7 @@ class BookingsPage(ttk.Frame):
             mode="edit",
             booking=booking
         )
+
 
 class BookingFormWindow(tk.Toplevel):
     def __init__(self, app: PanaloApp, parent_page: BookingsPage, mode: str, booking=None):
@@ -4331,20 +4274,13 @@ class SchedulePage(ttk.Frame):
 
         self.period_title_var = tk.StringVar()
 
-        self.period_title_label = ttk.Label(
+        ttk.Label(
             nav_row,
             textvariable=self.period_title_var,
             font=("Georgia", 24, "bold"),
             foreground=ACCENT_OLIVE,
-            background=APP_BG,
-            cursor="hand2"
-        )
-        self.period_title_label.pack(side="left", expand=True)
-
-        self.period_title_label.bind(
-            "<Button-1>",
-            lambda event: self.open_period_month_year_picker()
-        )
+            background=APP_BG
+        ).pack(side="left", expand=True)
 
         # View buttons
         view_row = ttk.Frame(self)
@@ -4386,18 +4322,6 @@ class SchedulePage(ttk.Frame):
         self.side_panel = ttk.Frame(self.body, width=330)
         self.side_panel.pack(side="right", fill="y")
         self.side_panel.pack_propagate(False)
-
-    def open_period_month_year_picker(self):
-        MonthYearPickerWindow(
-            parent=self,
-            current_year=self.current_date.year,
-            current_month=self.current_date.month,
-            on_select=self.set_period_month_year
-        )
-
-    def set_period_month_year(self, selected_year, selected_month):
-        self.current_date = date(selected_year, selected_month, 1)
-        self.refresh_page()
 
     def create_card(self, parent):
         card = tk.Frame(
@@ -5274,9 +5198,9 @@ class SchedulePage(ttk.Frame):
         ).pack(anchor="w", padx=14, pady=(12, 8))
 
         upcoming = [
-            event for event in self.events
-            if str(event.get("status", "")).lower() != "cancelled"
-        ][:6]
+                       event for event in self.events
+                       if str(event.get("status", "")).lower() != "cancelled"
+                   ][:6]
 
         if not upcoming:
             tk.Label(
@@ -5475,6 +5399,7 @@ class SchedulePage(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Unable to cancel schedule: {e}")
 
+
 class ScheduleDetailsWindow(tk.Toplevel):
     def __init__(self, parent, schedule_page: SchedulePage, events, date_text):
         super().__init__(parent)
@@ -5590,7 +5515,6 @@ class ScheduleDetailsWindow(tk.Toplevel):
         self.schedule_page.confirm_cancel_schedule(event)
 
 
-
 class RescheduleScheduleWindow(tk.Toplevel):
     def __init__(self, parent, schedule_page: SchedulePage, event):
         super().__init__(parent)
@@ -5680,18 +5604,18 @@ class RescheduleScheduleWindow(tk.Toplevel):
             state="readonly"
         ).pack(fill="x", pady=(4, 18))
 
-        #note = (
+        # note = (
         #    "Available dates are selectable.\n"
         #    "Unavailable dates are already booked or too close to today.\n"
         #    "The current booked date is highlighted in the calendar."
-        #)
+        # )
 
-        #ttk.Label(
+        # ttk.Label(
         #   container,
         #    text=note,
         #    style="Subheader.TLabel",
         #    wraplength=460
-        #).pack(anchor="w", pady=(0, 16))
+        # ).pack(anchor="w", pady=(0, 16))
 
         button_row = ttk.Frame(container)
         button_row.pack(fill="x", pady=(10, 0))
@@ -5802,15 +5726,16 @@ class RescheduleScheduleWindow(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", f"Unable to reschedule: {e}")
 
+
 class RescheduleDatePickerWindow(tk.Toplevel):
     def __init__(
-        self,
-        parent,
-        schedule_page: SchedulePage,
-        target_var,
-        booking_id,
-        current_schedule_date,
-        initial_date=None
+            self,
+            parent,
+            schedule_page: SchedulePage,
+            target_var,
+            booking_id,
+            current_schedule_date,
+            initial_date=None
     ):
         super().__init__(parent)
 
@@ -6171,11 +6096,11 @@ class PaymentPage(ttk.Frame):
         super().__init__(parent)
 
         self.app = app
-
         self.search_var = tk.StringVar()
         self.payment_status_filter_var = tk.StringVar(value="All")
         self.payment_type_filter_var = tk.StringVar(value="All")
         self.payment_method_filter_var = tk.StringVar(value="All")
+        self.booking_payment_status_filter_var = tk.StringVar(value="All")
 
         self.selected_booking_id = None
         self.selected_payment_id = None
@@ -6185,9 +6110,6 @@ class PaymentPage(ttk.Frame):
         self.load_payment_history()
 
     def build_ui(self):
-        # =========================
-        # HEADER
-        # =========================
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 15))
 
@@ -6202,7 +6124,7 @@ class PaymentPage(ttk.Frame):
 
         ttk.Label(
             left_header,
-            text="Manage booking balances, payment records, verification, and audit trail.",
+            text="Manage payment transactions, verification, and audit trail.",
             style="Subheader.TLabel"
         ).pack(anchor="w", pady=(2, 0))
 
@@ -6213,158 +6135,86 @@ class PaymentPage(ttk.Frame):
         ).pack(side="right")
 
         # =========================
-        # SEARCH BAR
+        # FILTER BAR
         # =========================
-        search_bar = ttk.Frame(self)
-        search_bar.pack(fill="x", pady=(0, 10))
+        filter_box = ttk.LabelFrame(self, text="Payment Filters", padding=10)
+        filter_box.pack(fill="x", pady=(0, 12))
 
-        ttk.Label(search_bar, text="Search").pack(side="left")
+        row1 = ttk.Frame(filter_box)
+        row1.pack(fill="x", pady=(0, 8))
 
-        self.payment_search_entry = ttk.Entry(
-            search_bar,
+        ttk.Label(row1, text="Search").pack(side="left")
+
+        ttk.Entry(
+            row1,
             textvariable=self.search_var,
-            width=35
-        )
-        self.payment_search_entry.pack(side="left", padx=(8, 8))
+            width=30
+        ).pack(side="left", padx=(6, 12))
 
-        self.payment_search_entry.bind(
-            "<Return>",
-            lambda event: self.search_payment_page()
-        )
+        ttk.Label(row1, text="Verification").pack(side="left")
 
-        ttk.Button(
-            search_bar,
-            text="Search",
-            command=self.search_payment_page
-        ).pack(side="left")
-
-        ttk.Button(
-            search_bar,
-            text="Clear",
-            command=self.clear_search
-        ).pack(side="left", padx=(8, 0))
-
-        # =========================
-        # AUTO FILTER BAR
-        # =========================
-        filter_bar = ttk.Frame(self)
-        filter_bar.pack(fill="x", pady=(0, 10))
-
-        ttk.Label(filter_bar, text="Verification").pack(side="left")
-
-        verification_filter = ttk.Combobox(
-            filter_bar,
+        ttk.Combobox(
+            row1,
             textvariable=self.payment_status_filter_var,
             values=("All", "Pending", "Verified", "Rejected"),
             state="readonly",
             width=14
-        )
-        verification_filter.pack(side="left", padx=(6, 12))
+        ).pack(side="left", padx=(6, 12))
 
-        ttk.Label(filter_bar, text="Payment Type").pack(side="left")
+        ttk.Label(row1, text="Payment Type").pack(side="left")
 
-        type_filter = ttk.Combobox(
-            filter_bar,
+        ttk.Combobox(
+            row1,
             textvariable=self.payment_type_filter_var,
             values=("All", "Down Payment", "Partial Payment", "Full Payment", "Refund"),
             state="readonly",
             width=16
-        )
-        type_filter.pack(side="left", padx=(6, 12))
+        ).pack(side="left", padx=(6, 12))
 
-        ttk.Label(filter_bar, text="Method").pack(side="left")
+        row2 = ttk.Frame(filter_box)
+        row2.pack(fill="x")
 
-        method_filter = ttk.Combobox(
-            filter_bar,
+        ttk.Label(row2, text="Method").pack(side="left")
+
+        ttk.Combobox(
+            row2,
             textvariable=self.payment_method_filter_var,
             values=("All", "GCash", "Maya", "Bank Transfer", "Cash"),
             state="readonly",
             width=16
-        )
-        method_filter.pack(side="left", padx=(6, 12))
+        ).pack(side="left", padx=(6, 12))
 
-        verification_filter.bind(
-            "<<ComboboxSelected>>",
-            lambda event: self.load_payment_history()
-        )
+        ttk.Label(row2, text="Booking Status").pack(side="left")
 
-        type_filter.bind(
-            "<<ComboboxSelected>>",
-            lambda event: self.load_payment_history()
-        )
+        ttk.Combobox(
+            row2,
+            textvariable=self.booking_payment_status_filter_var,
+            values=("All", "Paid", "Partially Paid", "Unpaid"),
+            state="readonly",
+            width=16
+        ).pack(side="left", padx=(6, 12))
 
-        method_filter.bind(
-            "<<ComboboxSelected>>",
-            lambda event: self.load_payment_history()
-        )
+        ttk.Button(
+            row2,
+            text="Apply Filters",
+            command=self.load_payment_history
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            row2,
+            text="Clear Filters",
+            command=self.clear_filters
+        ).pack(side="left", padx=(8, 0))
 
         # =========================
-        # MAIN CONTENT
-        # Original layout:
-        # Top: Booking / Payment Summary
-        # Bottom: General Payment History
+        # MAIN AREA
         # =========================
         main = ttk.Frame(self)
         main.pack(fill="both", expand=True)
 
-        # =========================
-        # TOP TABLE: BOOKING SUMMARY
-        # =========================
-        booking_frame = ttk.LabelFrame(
-            main,
-            text="Bookings / Payment Summary",
-            padding=10
-        )
-        booking_frame.pack(fill="both", expand=True, pady=(0, 10))
-
-        booking_columns = (
-            "booking_id",
-            "client_name",
-            "event_date",
-            "package_name",
-            "total_amount",
-            "net_paid",
-            "balance",
-            "payment_status"
-        )
-
-        self.booking_table = ttk.Treeview(
-            booking_frame,
-            columns=booking_columns,
-            show="headings",
-            height=9
-        )
-
-        self.booking_table.heading("booking_id", text="ID")
-        self.booking_table.heading("client_name", text="Client")
-        self.booking_table.heading("event_date", text="Event Date")
-        self.booking_table.heading("package_name", text="Package")
-        self.booking_table.heading("total_amount", text="Total")
-        self.booking_table.heading("net_paid", text="Paid")
-        self.booking_table.heading("balance", text="Balance")
-        self.booking_table.heading("payment_status", text="Status")
-
-        self.booking_table.column("booking_id", width=50)
-        self.booking_table.column("client_name", width=150)
-        self.booking_table.column("event_date", width=100)
-        self.booking_table.column("package_name", width=220)
-        self.booking_table.column("total_amount", width=100)
-        self.booking_table.column("net_paid", width=100)
-        self.booking_table.column("balance", width=100)
-        self.booking_table.column("payment_status", width=120)
-
-        self.booking_table.pack(fill="both", expand=True)
-        self.booking_table.bind("<<TreeviewSelect>>", self.handle_booking_selection)
-
-        # =========================
-        # BOTTOM TABLE: GENERAL PAYMENT HISTORY
-        # =========================
-        payment_frame = ttk.LabelFrame(
-            main,
-            text="General Payment History",
-            padding=10
-        )
-        payment_frame.pack(fill="both", expand=True)
+        # LEFT: GENERAL PAYMENT HISTORY
+        history_frame = ttk.LabelFrame(main, text="General Payment History", padding=10)
+        history_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
         payment_columns = (
             "id",
@@ -6376,14 +6226,15 @@ class PaymentPage(ttk.Frame):
             "reference_number",
             "payment_date",
             "verification_status",
-            "encoded_by"
+            "encoded_by",
+            "verified_by"
         )
 
         self.payment_table = ttk.Treeview(
-            payment_frame,
+            history_frame,
             columns=payment_columns,
             show="headings",
-            height=8
+            height=16
         )
 
         self.payment_table.heading("id", text="Payment ID")
@@ -6394,22 +6245,72 @@ class PaymentPage(ttk.Frame):
         self.payment_table.heading("payment_method", text="Method")
         self.payment_table.heading("reference_number", text="Reference")
         self.payment_table.heading("payment_date", text="Date")
-        self.payment_table.heading("verification_status", text="Verification")
+        self.payment_table.heading("verification_status", text="Status")
         self.payment_table.heading("encoded_by", text="Encoded By")
+        self.payment_table.heading("verified_by", text="Verified By")
 
         self.payment_table.column("id", width=80)
         self.payment_table.column("booking_id", width=80)
-        self.payment_table.column("client_name", width=160)
-        self.payment_table.column("payment_type", width=130)
+        self.payment_table.column("client_name", width=150)
+        self.payment_table.column("payment_type", width=120)
         self.payment_table.column("amount", width=110)
-        self.payment_table.column("payment_method", width=120)
-        self.payment_table.column("reference_number", width=150)
+        self.payment_table.column("payment_method", width=110)
+        self.payment_table.column("reference_number", width=140)
         self.payment_table.column("payment_date", width=100)
-        self.payment_table.column("verification_status", width=120)
-        self.payment_table.column("encoded_by", width=150)
+        self.payment_table.column("verification_status", width=100)
+        self.payment_table.column("encoded_by", width=140)
+        self.payment_table.column("verified_by", width=140)
 
         self.payment_table.pack(fill="both", expand=True)
         self.payment_table.bind("<<TreeviewSelect>>", self.handle_payment_selection)
+
+        # RIGHT: BOOKING SUMMARY / ADD PAYMENT
+        summary_frame = ttk.LabelFrame(main, text="Booking Payment Summary", padding=10)
+        summary_frame.pack(side="right", fill="both", expand=False)
+        summary_frame.configure(width=380)
+
+        ttk.Label(
+            summary_frame,
+            text="Select a booking below before adding payment.",
+            style="Subheader.TLabel",
+            wraplength=340
+        ).pack(anchor="w", pady=(0, 8))
+
+        booking_columns = (
+            "booking_id",
+            "client_name",
+            "event_date",
+            "total_amount",
+            "net_paid",
+            "balance",
+            "payment_status"
+        )
+
+        self.booking_table = ttk.Treeview(
+            summary_frame,
+            columns=booking_columns,
+            show="headings",
+            height=12
+        )
+
+        self.booking_table.heading("booking_id", text="ID")
+        self.booking_table.heading("client_name", text="Client")
+        self.booking_table.heading("event_date", text="Date")
+        self.booking_table.heading("total_amount", text="Total")
+        self.booking_table.heading("net_paid", text="Paid")
+        self.booking_table.heading("balance", text="Balance")
+        self.booking_table.heading("payment_status", text="Status")
+
+        self.booking_table.column("booking_id", width=50)
+        self.booking_table.column("client_name", width=130)
+        self.booking_table.column("event_date", width=90)
+        self.booking_table.column("total_amount", width=95)
+        self.booking_table.column("net_paid", width=95)
+        self.booking_table.column("balance", width=95)
+        self.booking_table.column("payment_status", width=100)
+
+        self.booking_table.pack(fill="both", expand=True)
+        self.booking_table.bind("<<TreeviewSelect>>", self.handle_booking_selection)
 
         # =========================
         # ACTION BAR
@@ -6456,12 +6357,6 @@ class PaymentPage(ttk.Frame):
             self.verify_button.config(state="disabled")
             self.reject_button.config(state="disabled")
 
-    def format_price(self, value):
-        try:
-            return f"₱{float(value or 0):,.2f}"
-        except Exception:
-            return "₱0.00"
-
     def load_booking_summaries(self, search_text=""):
         for item in self.booking_table.get_children():
             self.booking_table.delete(item)
@@ -6480,7 +6375,7 @@ class PaymentPage(ttk.Frame):
                     self.format_price(item["total_amount"]),
                     self.format_price(item["net_paid"]),
                     self.format_price(item["balance"]),
-                    item["payment_status"] or ""
+                    item["payment_status"]
                 )
             )
 
@@ -6492,19 +6387,11 @@ class PaymentPage(ttk.Frame):
             "search": self.search_var.get().strip(),
             "verification_status": self.payment_status_filter_var.get(),
             "payment_type": self.payment_type_filter_var.get(),
-            "payment_method": self.payment_method_filter_var.get()
+            "payment_method": self.payment_method_filter_var.get(),
+            "booking_payment_status": self.booking_payment_status_filter_var.get()
         }
 
-        try:
-            payments = self.app.payment_service.list_all_payments(filters)
-
-        except AttributeError:
-            messagebox.showerror(
-                "Missing Service Method",
-                "payment_service.py is missing list_all_payments().\n\n"
-                "Please add that method to PaymentService before using the general payment history."
-            )
-            return
+        payments = self.app.payment_service.list_all_payments(filters)
 
         for payment in payments:
             self.payment_table.insert(
@@ -6520,7 +6407,8 @@ class PaymentPage(ttk.Frame):
                     payment["reference_number"] or "",
                     payment["payment_date"] or "",
                     payment["verification_status"] or "",
-                    payment["encoded_by"] or ""
+                    payment["encoded_by"] or "",
+                    payment["verified_by"] or ""
                 ),
                 tags=("normal",)
             )
@@ -6545,52 +6433,32 @@ class PaymentPage(ttk.Frame):
         values = self.payment_table.item(selected[0], "values")
         self.selected_payment_id = int(values[0])
 
-    def search_payment_page(self):
-        keyword = self.search_var.get().strip()
-
-        self.load_booking_summaries(keyword)
-        self.load_payment_history()
-
-    def search_booking_summaries(self):
-        self.search_payment_page()
-
-    def clear_search(self):
+    def clear_filters(self):
         self.search_var.set("")
         self.payment_status_filter_var.set("All")
         self.payment_type_filter_var.set("All")
         self.payment_method_filter_var.set("All")
+        self.booking_payment_status_filter_var.set("All")
 
+        self.load_payment_history()
+        self.load_booking_summaries()
+
+    def search_booking_summaries(self):
+        self.load_booking_summaries(self.search_var.get())
+
+    def clear_search(self):
+        self.search_var.set("")
         self.load_booking_summaries()
         self.load_payment_history()
 
     def refresh_all(self):
-        current_booking = self.selected_booking_id
-
         self.load_booking_summaries(self.search_var.get())
         self.load_payment_history()
-
-        if current_booking:
-            self.selected_booking_id = current_booking
-
         self.selected_payment_id = None
-        self.apply_role_permissions_to_payment_actions()
-
-    def clear_filters(self):
-        self.clear_search()
 
     def open_add_payment_window(self):
         if not self.selected_booking_id:
-            selected = self.booking_table.selection()
-
-            if selected:
-                values = self.booking_table.item(selected[0], "values")
-                self.selected_booking_id = int(values[0])
-
-        if not self.selected_booking_id:
-            messagebox.showwarning(
-                "No Booking Selected",
-                "Please select a booking first from the booking summary table."
-            )
+            messagebox.showwarning("No Booking Selected", "Please select a booking first.")
             return
 
         PaymentFormWindow(
@@ -6608,15 +6476,12 @@ class PaymentPage(ttk.Frame):
             return
 
         if not self.selected_payment_id:
-            messagebox.showwarning(
-                "No Payment Selected",
-                "Please select a payment first."
-            )
+            messagebox.showwarning("No Payment Selected", "Please select a payment first.")
             return
 
         confirm = messagebox.askyesno(
             "Confirm Verification",
-            "Are you sure you want to verify this payment?"
+            "Verify this payment?"
         )
 
         if not confirm:
@@ -6628,21 +6493,11 @@ class PaymentPage(ttk.Frame):
                 actor_id=self.app.current_user.id
             )
 
-            messagebox.showinfo(
-                "Verified",
-                "Payment verified successfully."
-            )
-
+            messagebox.showinfo("Verified", "Payment verified successfully.")
             self.refresh_all()
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
-
-        except Exception as e:
-            messagebox.showerror(
-                "Error",
-                f"Unable to verify payment: {e}"
-            )
 
     def reject_selected_payment(self):
         if not self.is_current_user_admin():
@@ -6653,15 +6508,12 @@ class PaymentPage(ttk.Frame):
             return
 
         if not self.selected_payment_id:
-            messagebox.showwarning(
-                "No Payment Selected",
-                "Please select a payment first."
-            )
+            messagebox.showwarning("No Payment Selected", "Please select a payment first.")
             return
 
         confirm = messagebox.askyesno(
             "Confirm Rejection",
-            "Are you sure you want to reject this payment?"
+            "Reject this payment?"
         )
 
         if not confirm:
@@ -6673,97 +6525,13 @@ class PaymentPage(ttk.Frame):
                 actor_id=self.app.current_user.id
             )
 
-            messagebox.showinfo(
-                "Rejected",
-                "Payment rejected successfully."
-            )
-
+            messagebox.showinfo("Rejected", "Payment rejected successfully.")
             self.refresh_all()
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
 
-        except Exception as e:
-            messagebox.showerror(
-                "Error",
-                f"Unable to reject payment: {e}"
-            )
 
-class MonthYearPickerWindow(tk.Toplevel):
-    def __init__(self, parent, current_year, current_month, on_select):
-        super().__init__(parent)
-
-        self.on_select = on_select
-        self.year_var = tk.StringVar(value=str(current_year))
-        self.month_var = tk.StringVar(value=calendar.month_name[current_month])
-
-        self.title("Select Month and Year")
-        self.geometry("320x190")
-        self.resizable(False, False)
-        self.configure(bg=APP_BG)
-
-        self.transient(parent)
-        self.grab_set()
-
-        self.build_ui()
-
-    def build_ui(self):
-        container = ttk.Frame(self, padding=18)
-        container.pack(fill="both", expand=True)
-
-        ttk.Label(
-            container,
-            text="Select Month and Year",
-            style="Section.TLabel"
-        ).pack(anchor="w", pady=(0, 12))
-
-        ttk.Label(container, text="Month").pack(anchor="w")
-
-        month_box = ttk.Combobox(
-            container,
-            textvariable=self.month_var,
-            values=list(calendar.month_name)[1:],
-            state="readonly"
-        )
-        month_box.pack(fill="x", pady=(3, 10))
-
-        ttk.Label(container, text="Year").pack(anchor="w")
-
-        current_year = date.today().year
-
-        year_box = ttk.Combobox(
-            container,
-            textvariable=self.year_var,
-            values=[str(year) for year in range(current_year - 5, current_year + 11)],
-            state="readonly"
-        )
-        year_box.pack(fill="x", pady=(3, 14))
-
-        button_row = ttk.Frame(container)
-        button_row.pack(fill="x")
-
-        ttk.Button(
-            button_row,
-            text="Cancel",
-            command=self.destroy
-        ).pack(side="right")
-
-        ttk.Button(
-            button_row,
-            text="Apply",
-            command=self.apply_selection
-        ).pack(side="right", padx=(0, 8))
-
-    def apply_selection(self):
-        selected_month_name = self.month_var.get()
-        selected_year = int(self.year_var.get())
-
-        selected_month = list(calendar.month_name).index(selected_month_name)
-
-        self.on_select(selected_year, selected_month)
-        self.destroy()
-
-            
 class SimpleDatePickerWindow(tk.Toplevel):
     def __init__(self, target_var: tk.StringVar, initial_date=None):
         super().__init__()
@@ -6806,15 +6574,9 @@ class SimpleDatePickerWindow(tk.Toplevel):
         self.month_label = ttk.Label(
             nav,
             text="",
-            font=("Segoe UI", 14, "bold"),
-            cursor="hand2"
+            font=("Segoe UI", 14, "bold")
         )
         self.month_label.pack(side="left", expand=True)
-
-        self.month_label.bind(
-            "<Button-1>",
-            lambda event: self.open_month_year_picker()
-        )
 
         ttk.Button(
             nav,
@@ -6831,19 +6593,6 @@ class SimpleDatePickerWindow(tk.Toplevel):
             text="Use Today",
             command=self.use_today
         ).pack(fill="x", pady=(10, 0))
-
-    def open_month_year_picker(self):
-        MonthYearPickerWindow(
-            parent=self,
-            current_year=self.current_year,
-            current_month=self.current_month,
-            on_select=self.set_month_year
-        )
-
-    def set_month_year(self, selected_year, selected_month):
-        self.current_year = selected_year
-        self.current_month = selected_month
-        self.render_calendar()
 
     def previous_month(self):
         self.current_month -= 1
@@ -6946,8 +6695,8 @@ class PaymentFormWindow(tk.Toplevel):
         self.parent_page = parent_page
         self.booking_id = booking_id
 
-        self.booking = self.app.payment_service.get_booking_payment_summary(self.booking_id)
-        self.summary = self.app.payment_service.get_booking_payment_summary(booking_id)
+        self.summary = self.app.payment_service.get_booking_payment_summary(self.booking_id)
+        self.booking = self.summary
 
         if not self.summary:
             messagebox.showerror("Error", "Booking payment summary not found.")
@@ -6955,9 +6704,10 @@ class PaymentFormWindow(tk.Toplevel):
             return
 
         self.title("Add Payment")
-        self.geometry("720x540")
-        self.minsize(680, 500)
+        self.geometry("900x720")
+        self.minsize(860, 680)
         self.resizable(True, True)
+        self.configure(bg=APP_BG)
 
         self.payment_type_var = tk.StringVar(value="Down Payment")
         self.amount_var = tk.StringVar()
@@ -6978,28 +6728,10 @@ class PaymentFormWindow(tk.Toplevel):
             style="Header.TLabel"
         ).pack(anchor="w", pady=(0, 14))
 
-        # Bottom action buttons should be packed before the expanding body
-        button_row = ttk.Frame(container)
-        button_row.pack(side="bottom", fill="x", pady=(14, 0))
-
-        ttk.Button(
-            button_row,
-            text="Cancel",
-            command=self.destroy
-        ).pack(side="right")
-
-        ttk.Button(
-            button_row,
-            text="Confirm Payment",
-            command=self.save_payment
-        ).pack(side="right", padx=(0, 8))
-
         body = ttk.Frame(container)
-        body.pack(side="top", fill="both", expand=True)
+        body.pack(fill="both", expand=True)
 
-        # =========================
-        # LEFT: BOOKING SUMMARY
-        # =========================
+        # LEFT SIDE: BOOKING SUMMARY
         summary_container = ttk.Frame(body)
         summary_container.pack(side="left", fill="both", expand=True, padx=(0, 14))
 
@@ -7028,9 +6760,7 @@ class PaymentFormWindow(tk.Toplevel):
             anchor="nw"
         ).pack(fill="both", expand=True, padx=20, pady=20)
 
-        # =========================
-        # RIGHT: PAYMENT DETAILS
-        # =========================
+        # RIGHT SIDE: PAYMENT DETAILS
         details_container = ttk.Frame(body)
         details_container.pack(side="left", fill="both", expand=True)
 
@@ -7052,10 +6782,7 @@ class PaymentFormWindow(tk.Toplevel):
         form = ttk.Frame(details_box)
         form.pack(fill="both", expand=True, padx=20, pady=18)
 
-        ttk.Label(
-            form,
-            text="Payment Type"
-        ).pack(anchor="w")
+        ttk.Label(form, text="Payment Type").pack(anchor="w")
 
         payment_type_box = ttk.Combobox(
             form,
@@ -7064,16 +6791,12 @@ class PaymentFormWindow(tk.Toplevel):
             state="readonly"
         )
         payment_type_box.pack(fill="x", pady=(4, 10))
-
         payment_type_box.bind(
             "<<ComboboxSelected>>",
             lambda event: self.update_amount_by_type()
         )
 
-        ttk.Label(
-            form,
-            text="Amount"
-        ).pack(anchor="w")
+        ttk.Label(form, text="Amount").pack(anchor="w")
 
         self.amount_entry = ttk.Entry(
             form,
@@ -7084,8 +6807,11 @@ class PaymentFormWindow(tk.Toplevel):
 
         ttk.Label(
             form,
-            text="Payment Method"
-        ).pack(anchor="w")
+            text="Amount is automatically computed based on the selected payment type.",
+            style="Subheader.TLabel"
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(form, text="Payment Method").pack(anchor="w")
 
         payment_method_box = ttk.Combobox(
             form,
@@ -7095,10 +6821,7 @@ class PaymentFormWindow(tk.Toplevel):
         )
         payment_method_box.pack(fill="x", pady=(4, 10))
 
-        ttk.Label(
-            form,
-            text="Reference Number"
-        ).pack(anchor="w")
+        ttk.Label(form, text="Reference Number").pack(anchor="w")
 
         reference_vcmd = (
             self.register(limit_text_length(PAYMENT_REFERENCE_MAX_LENGTH)),
@@ -7111,12 +6834,15 @@ class PaymentFormWindow(tk.Toplevel):
             validate="key",
             validatecommand=reference_vcmd
         )
-        self.reference_number_entry.pack(fill="x", pady=(4, 10))
+        self.reference_number_entry.pack(fill="x", pady=(4, 4))
 
         ttk.Label(
             form,
-            text="Payment Date"
-        ).pack(anchor="w")
+            text=f"Maximum {PAYMENT_REFERENCE_MAX_LENGTH} characters. Required for non-cash payments.",
+            style="Subheader.TLabel"
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(form, text="Payment Date").pack(anchor="w")
 
         date_row = ttk.Frame(form)
         date_row.pack(fill="x", pady=(4, 10))
@@ -7133,10 +6859,7 @@ class PaymentFormWindow(tk.Toplevel):
             command=self.select_payment_date
         ).pack(side="left", padx=(8, 0))
 
-        ttk.Label(
-            form,
-            text="Notes"
-        ).pack(anchor="w")
+        ttk.Label(form, text="Notes").pack(anchor="w")
 
         self.notes_box = tk.Text(
             form,
@@ -7150,8 +6873,20 @@ class PaymentFormWindow(tk.Toplevel):
         )
         self.notes_box.pack(fill="x", pady=(4, 10))
 
+        button_row = ttk.Frame(form)
+        button_row.pack(fill="x", pady=(8, 0))
 
-        self.update_amount_by_type()
+        ttk.Button(
+            button_row,
+            text="Cancel",
+            command=self.destroy
+        ).pack(side="right")
+
+        ttk.Button(
+            button_row,
+            text="Confirm Payment",
+            command=self.save_payment
+        ).pack(side="right", padx=(0, 8))
 
     def select_payment_date(self):
         SimpleDatePickerWindow(
@@ -7159,78 +6894,91 @@ class PaymentFormWindow(tk.Toplevel):
             initial_date=self.payment_date_var.get()
         )
 
-    def get_booking_summary_text(self):
-        booking = getattr(self, "booking", None)
+    def get_summary_number(self, key, default=0):
+        try:
+            return float(self.summary.get(key, default) or default)
+        except Exception:
+            return float(default)
 
-        if not booking:
+    def get_total_amount(self):
+        return self.get_summary_number("total_amount", 0)
+
+    def get_net_paid(self):
+        # PaymentService uses net_paid in the payment summary table.
+        # Keep fallback names in case service output changes later.
+        if "net_paid" in self.summary:
+            return self.get_summary_number("net_paid", 0)
+
+        if "verified_paid_amount" in self.summary:
+            return self.get_summary_number("verified_paid_amount", 0)
+
+        return 0.0
+
+    def get_remaining_balance(self):
+        total_amount = self.get_total_amount()
+        net_paid = self.get_net_paid()
+        balance = self.get_summary_number("balance", total_amount - net_paid)
+
+        # If the service returns 0 balance while the booking is still unpaid, recompute it safely.
+        if balance <= 0 and net_paid < total_amount:
+            balance = total_amount - net_paid
+
+        if balance < 0:
+            balance = 0
+
+        return balance
+
+    def get_payment_status_text(self):
+        payment_status = self.summary.get("payment_status")
+
+        if payment_status:
+            return payment_status
+
+        total_amount = self.get_total_amount()
+        net_paid = self.get_net_paid()
+
+        if net_paid <= 0:
+            return "Unpaid"
+
+        if net_paid < total_amount:
+            return "Partially Paid"
+
+        return "Paid"
+
+    def get_booking_summary_text(self):
+        if not self.summary:
             return "No booking summary available."
 
-        total_amount = float(booking.get("total_amount") or 0)
-
-        verified_paid_amount = booking.get("verified_paid_amount")
-
-        if verified_paid_amount is None:
-            verified_paid_amount = booking.get("net_paid")
-
-        verified_paid_amount = float(verified_paid_amount or 0)
-
-        remaining_balance = total_amount - verified_paid_amount
-
-        if remaining_balance < 0:
-            remaining_balance = 0
-
-        payment_status = booking.get("payment_status")
-
-        if not payment_status:
-            if verified_paid_amount <= 0:
-                payment_status = "Unpaid"
-            elif verified_paid_amount < total_amount:
-                payment_status = "Partially Paid"
-            else:
-                payment_status = "Paid"
+        total_amount = self.get_total_amount()
+        net_paid = self.get_net_paid()
+        remaining_balance = self.get_remaining_balance()
 
         return (
             f"Booking ID: {self.booking_id}\n\n"
-            f"Client:\n{booking.get('client_name', '')}\n\n"
-            f"Package:\n{booking.get('package_name', '')}\n\n"
-            f"Event Date:\n{booking.get('event_date', '')}\n\n"
+            f"Client:\n{self.summary.get('client_name', '')}\n\n"
+            f"Package:\n{self.summary.get('package_name', '')}\n\n"
+            f"Event Date:\n{self.summary.get('event_date', '')}\n\n"
             f"Total Amount:\n{format_money_display(total_amount)}\n\n"
-            f"Verified Paid Amount:\n{format_money_display(verified_paid_amount)}\n\n"
+            f"Verified Paid Amount:\n{format_money_display(net_paid)}\n\n"
             f"Remaining Balance:\n{format_money_display(remaining_balance)}\n\n"
-            f"Payment Status:\n{payment_status}"
+            f"Payment Status:\n{self.get_payment_status_text()}"
         )
 
     def open_payment_date_picker(self):
-        SimpleDatePickerWindow(
-            target_var=self.payment_date_var,
-            initial_date=self.payment_date_var.get()
-        )
+        self.select_payment_date()
 
     def update_amount_by_type(self):
         payment_type = self.payment_type_var.get().strip()
 
-        booking = getattr(self, "booking", {}) or {}
-
-        total_amount = float(booking.get("total_amount") or 0)
-
-        verified_paid_amount = booking.get("verified_paid_amount")
-
-        if verified_paid_amount is None:
-            verified_paid_amount = booking.get("net_paid")
-
-        verified_paid_amount = float(verified_paid_amount or 0)
-
-        remaining_balance = total_amount - verified_paid_amount
-
-        if remaining_balance < 0:
-            remaining_balance = 0
+        total_amount = self.get_total_amount()
+        net_paid = self.get_net_paid()
+        remaining_balance = self.get_remaining_balance()
 
         if payment_type == "Down Payment":
-            required_down_payment = total_amount * 0.50
-            amount = required_down_payment - verified_paid_amount
-
-            if amount < 0:
-                amount = 0
+            settings = self.app.settings_service.get_all_settings()
+            down_percentage = float(settings.get("down_payment_percentage", "50") or 50)
+            required_down_payment = total_amount * (down_percentage / 100)
+            amount = required_down_payment - net_paid
 
         elif payment_type == "Partial Payment":
             amount = remaining_balance
@@ -7239,18 +6987,20 @@ class PaymentFormWindow(tk.Toplevel):
             amount = remaining_balance
 
         elif payment_type == "Refund":
-            amount = verified_paid_amount
+            amount = self.app.payment_service.get_refundable_amount_by_booking(
+                self.booking_id
+            )
 
         else:
+            amount = 0
+
+        if amount < 0:
             amount = 0
 
         self.amount_var.set(f"{amount:,.2f}")
 
     def get_amount(self):
-        try:
-            amount = float(self.amount_var.get() or 0)
-        except ValueError:
-            raise ValueError("Amount must be a valid number.")
+        amount = parse_money_value(self.amount_var.get())
 
         if amount <= 0:
             raise ValueError("Amount must be greater than zero.")
@@ -7258,11 +7008,16 @@ class PaymentFormWindow(tk.Toplevel):
         return amount
 
     def validate_payment_before_save(self):
-        payment_type = self.payment_type_var.get()
-        balance = float(self.summary["balance"] or 0)
+        payment_type = self.payment_type_var.get().strip()
+        payment_method = self.payment_method_var.get().strip()
+        reference_number = self.reference_number_var.get().strip()
+        balance = self.get_remaining_balance()
 
         if payment_type == "Full Payment" and balance <= 0:
             raise ValueError("This booking is already fully paid.")
+
+        if payment_type in ("Down Payment", "Partial Payment") and self.get_amount() <= 0:
+            raise ValueError("There is no remaining amount due for this payment type.")
 
         if payment_type == "Refund":
             refundable = self.app.payment_service.get_refundable_amount_by_booking(
@@ -7274,6 +7029,14 @@ class PaymentFormWindow(tk.Toplevel):
                     "No refundable amount available. Down payment is non-refundable."
                 )
 
+        if payment_method != "Cash" and not reference_number:
+            raise ValueError("Reference number is required for non-cash payments.")
+
+        if len(reference_number) > PAYMENT_REFERENCE_MAX_LENGTH:
+            raise ValueError(
+                f"Reference number must not exceed {PAYMENT_REFERENCE_MAX_LENGTH} characters."
+            )
+
         if not self.payment_date_var.get().strip():
             raise ValueError("Payment date is required.")
 
@@ -7282,39 +7045,10 @@ class PaymentFormWindow(tk.Toplevel):
             self.validate_payment_before_save()
 
             payment_type = self.payment_type_var.get().strip()
-            amount = parse_money_value(self.amount_var.get())
+            amount = self.get_amount()
             payment_method = self.payment_method_var.get().strip()
             reference_number = self.reference_number_var.get().strip()
             payment_date = self.payment_date_var.get().strip()
-
-            if amount <= 0:
-                messagebox.showerror(
-                    "Validation Error",
-                    "Payment amount must be greater than 0."
-                )
-                return
-
-            if payment_method != "Cash" and not reference_number:
-                messagebox.showerror(
-                    "Validation Error",
-                    "Reference number is required for non-cash payments."
-                )
-                return
-
-            if len(reference_number) > PAYMENT_REFERENCE_MAX_LENGTH:
-                messagebox.showerror(
-                    "Validation Error",
-                    f"Reference number must not exceed {PAYMENT_REFERENCE_MAX_LENGTH} characters."
-                )
-                return
-
-            is_admin = str(self.app.current_user.role or "").upper() == "ADMIN"
-
-            verification_note = (
-                "This payment will be automatically verified because you are an admin."
-                if is_admin
-                else "This payment will be submitted as Pending and must be verified by an admin."
-            )
 
             confirm = messagebox.askyesno(
                 "Confirm Payment Transaction",
@@ -7330,6 +7064,14 @@ class PaymentFormWindow(tk.Toplevel):
             if not confirm:
                 return
 
+            is_admin = str(self.app.current_user.role or "").upper() == "ADMIN"
+
+            verification_note = (
+                "This payment will be automatically verified because you are an admin."
+                if is_admin
+                else "This payment will be submitted as Pending and must be verified by an admin."
+            )
+
             self.app.payment_service.add_payment(
                 booking_id=self.booking_id,
                 payment_type=payment_type,
@@ -7339,12 +7081,12 @@ class PaymentFormWindow(tk.Toplevel):
                 payment_date=payment_date,
                 notes=self.notes_box.get("1.0", "end").strip(),
                 created_by=self.app.current_user.id,
-                created_by_role=self.app.current_user.role
+                created_by_role = self.app.current_user.role
             )
 
             messagebox.showinfo(
                 "Payment Saved",
-                "Payment recorded successfully."
+                "Payment recorded successfully. It is pending verification."
             )
 
             self.parent_page.refresh_all()
@@ -7374,32 +7116,11 @@ class ReportsPage(ttk.Frame):
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 15))
 
-        title_group = ttk.Frame(header)
-        title_group.pack(side="left", fill="x", expand=True)
-
         ttk.Label(
-            title_group,
+            header,
             text="Reports",
-            style="Header.TLabel"
-        ).pack(anchor="w")
-
-        ttk.Label(
-            title_group,
-            text="Business performance, revenue tracking, audit logs, and system health.",
-            style="Subheader.TLabel"
-        ).pack(anchor="w", pady=(2, 0))
-
-        ttk.Button(
-            header,
-            text="Export Current Tab CSV",
-            command=self.export_current_tab_csv
-        ).pack(side="right", padx=(8, 0))
-
-        ttk.Button(
-            header,
-            text="Weekly Report CSV",
-            command=self.export_weekly_report_csv
-        ).pack(side="right", padx=(8, 0))
+            font=("Segoe UI", 24, "bold")
+        ).pack(side="left")
 
         ttk.Button(
             header,
@@ -7416,7 +7137,6 @@ class ReportsPage(ttk.Frame):
         self.schedules_tab = ttk.Frame(self.notebook, padding=15)
         self.clients_tab = ttk.Frame(self.notebook, padding=15)
         self.packages_tab = ttk.Frame(self.notebook, padding=15)
-        self.admin_health_tab = ttk.Frame(self.notebook, padding=15)
 
         self.notebook.add(self.overview_tab, text="Overview")
         self.notebook.add(self.bookings_tab, text="Bookings")
@@ -7424,7 +7144,6 @@ class ReportsPage(ttk.Frame):
         self.notebook.add(self.schedules_tab, text="Schedules")
         self.notebook.add(self.clients_tab, text="Clients")
         self.notebook.add(self.packages_tab, text="Packages")
-        self.notebook.add(self.admin_health_tab, text="Admin / Health")
 
     def clear_tab(self, tab):
         for widget in tab.winfo_children():
@@ -7436,55 +7155,30 @@ class ReportsPage(ttk.Frame):
         except Exception:
             return "₱0.00"
 
-    def format_percent(self, value):
-        try:
-            return f"{float(value or 0):.1f}%"
-        except Exception:
-            return "0.0%"
-
-    def create_card(self, parent, title, value, subtitle=""):
+    def create_card(self, parent, title, value):
         card = tk.Frame(
             parent,
-            bg=APP_BG,
+            bg="white",
             relief="solid",
-            bd=1,
-            highlightbackground=BORDER_SOFT,
-            highlightthickness=1
+            bd=1
         )
         card.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
         tk.Label(
             card,
             text=title,
-            bg=APP_BG,
-            fg=TEXT_MUTED,
+            bg="white",
+            fg="#555555",
             font=("Segoe UI", 9)
         ).pack(anchor="w", padx=12, pady=(10, 2))
 
         tk.Label(
             card,
             text=value,
-            bg=APP_BG,
-            fg=TEXT_DARK,
+            bg="white",
+            fg="#111111",
             font=("Segoe UI", 16, "bold")
-        ).pack(anchor="w", padx=12)
-
-        if subtitle:
-            tk.Label(
-                card,
-                text=subtitle,
-                bg=APP_BG,
-                fg=TEXT_MUTED,
-                font=("Segoe UI", 8)
-            ).pack(anchor="w", padx=12, pady=(2, 10))
-        else:
-            tk.Label(
-                card,
-                text="",
-                bg=APP_BG,
-                fg=TEXT_MUTED,
-                font=("Segoe UI", 8)
-            ).pack(anchor="w", padx=12, pady=(2, 10))
+        ).pack(anchor="w", padx=12, pady=(0, 10))
 
         return card
 
@@ -7499,51 +7193,27 @@ class ReportsPage(ttk.Frame):
         for index, column in enumerate(columns):
             table.heading(column, text=headings[index])
             width = widths[index] if widths else 120
-            table.column(column, width=width, anchor="w")
-
-        table.tag_configure(
-            "normal",
-            background=APP_BG,
-            foreground=TEXT_DARK
-        )
+            table.column(column, width=width)
 
         table.pack(fill="both", expand=True, pady=(8, 0))
 
         return table
 
     def load_reports(self):
-        try:
-            if hasattr(self.app.reports_service, "get_enhanced_reports"):
-                self.reports_data = self.app.reports_service.get_enhanced_reports()
-            else:
-                self.reports_data = self.app.reports_service.get_all_reports()
+        self.reports_data = self.app.reports_service.get_all_reports()
 
-            self.render_overview_tab()
-            self.render_bookings_tab()
-            self.render_payments_tab()
-            self.render_schedules_tab()
-            self.render_clients_tab()
-            self.render_packages_tab()
-            self.render_admin_health_tab()
-
-        except Exception as e:
-            try:
-                self.app.reports_service.log_system_error(
-                    error_type="REPORTS_ERROR",
-                    error_message=str(e),
-                    source="ReportsPage.load_reports"
-                )
-            except Exception:
-                pass
-
-            messagebox.showerror("Reports Error", str(e))
+        self.render_overview_tab()
+        self.render_bookings_tab()
+        self.render_payments_tab()
+        self.render_schedules_tab()
+        self.render_clients_tab()
+        self.render_packages_tab()
 
     def render_overview_tab(self):
         self.clear_tab(self.overview_tab)
 
         booking = self.reports_data["booking"]
         payment = self.reports_data["payment"]
-        payment_health = self.reports_data.get("payment_health", {})
         schedule = self.reports_data["schedule"]
         client = self.reports_data["client"]
 
@@ -7559,42 +7229,14 @@ class ReportsPage(ttk.Frame):
         row2.pack(fill="x", pady=(8, 0))
 
         self.create_card(row2, "Expected Revenue", self.format_price(payment["expected_revenue"]))
-        self.create_card(row2, "Verified Collections", self.format_price(payment["verified_paid"]))
+        self.create_card(row2, "Verified Payments", self.format_price(payment["verified_paid"]))
         self.create_card(row2, "Pending Payments", self.format_price(payment["pending_payment"]))
         self.create_card(row2, "Unpaid Balance", self.format_price(payment["total_balance"]))
-
-        row3 = ttk.Frame(self.overview_tab)
-        row3.pack(fill="x", pady=(8, 0))
-
-        self.create_card(
-            row3,
-            "Collection Rate",
-            self.format_percent(payment_health.get("collection_rate", 0)),
-            "Verified collections / expected revenue"
-        )
-        self.create_card(
-            row3,
-            "Balance Rate",
-            self.format_percent(payment_health.get("balance_rate", 0)),
-            "Remaining balance / expected revenue"
-        )
-        self.create_card(
-            row3,
-            "Refunded Amount",
-            self.format_price(payment["refunded_amount"]),
-            "Verified refund transactions"
-        )
-        self.create_card(
-            row3,
-            "Payment Health",
-            f"{payment['paid_count']} Paid / {payment['unpaid_count']} Unpaid",
-            "Based on verified payment records"
-        )
 
         ttk.Label(
             self.overview_tab,
             text="Upcoming Events",
-            style="Section.TLabel"
+            font=("Segoe UI", 14, "bold")
         ).pack(anchor="w", pady=(20, 0))
 
         table = self.create_table(
@@ -7616,8 +7258,7 @@ class ReportsPage(ttk.Frame):
                     event["event_type"] or "",
                     event["package_name"] or "",
                     event["status"] or ""
-                ),
-                tags=("normal",)
+                )
             )
 
     def render_bookings_tab(self):
@@ -7629,61 +7270,65 @@ class ReportsPage(ttk.Frame):
         row.pack(fill="x")
 
         self.create_card(row, "Total Bookings", str(booking["total_bookings"]))
-        self.create_card(row, "Status Categories", str(len(booking["by_status"])))
-        self.create_card(row, "Event Types", str(len(booking["by_event_type"])))
 
-        left_right = ttk.Frame(self.bookings_tab)
-        left_right.pack(fill="both", expand=True, pady=(18, 0))
-
-        status_box = ttk.LabelFrame(left_right, text="Bookings by Status", padding=10)
-        status_box.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        event_box = ttk.LabelFrame(left_right, text="Bookings by Event Type", padding=10)
-        event_box.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        ttk.Label(
+            self.bookings_tab,
+            text="Bookings by Status",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
 
         status_table = self.create_table(
-            status_box,
+            self.bookings_tab,
             columns=("status", "count"),
             headings=("Status", "Count"),
-            widths=(220, 100),
-            height=12
+            widths=(240, 120),
+            height=7
         )
 
         for item in booking["by_status"]:
             status_table.insert(
                 "",
                 "end",
-                values=(item["status"], item["count"]),
-                tags=("normal",)
+                values=(
+                    item["status"],
+                    item["count"]
+                )
             )
 
-        event_table = self.create_table(
-            event_box,
+        ttk.Label(
+            self.bookings_tab,
+            text="Bookings by Event Type",
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
+
+        event_type_table = self.create_table(
+            self.bookings_tab,
             columns=("event_type", "count"),
             headings=("Event Type", "Count"),
-            widths=(240, 100),
-            height=12
+            widths=(240, 120),
+            height=7
         )
 
         for item in booking["by_event_type"]:
-            event_table.insert(
+            event_type_table.insert(
                 "",
                 "end",
-                values=(item["event_type"], item["count"]),
-                tags=("normal",)
+                values=(
+                    item["event_type"],
+                    item["count"]
+                )
             )
 
     def render_payments_tab(self):
         self.clear_tab(self.payments_tab)
 
         payment = self.reports_data["payment"]
-        payment_health = self.reports_data.get("payment_health", {})
 
         row1 = ttk.Frame(self.payments_tab)
         row1.pack(fill="x")
 
         self.create_card(row1, "Expected Revenue", self.format_price(payment["expected_revenue"]))
-        self.create_card(row1, "Verified Collections", self.format_price(payment["verified_paid"]))
+        self.create_card(row1, "Verified Payments", self.format_price(payment["verified_paid"]))
         self.create_card(row1, "Pending Payments", self.format_price(payment["pending_payment"]))
         self.create_card(row1, "Refunded Amount", self.format_price(payment["refunded_amount"]))
 
@@ -7691,70 +7336,21 @@ class ReportsPage(ttk.Frame):
         row2.pack(fill="x", pady=(8, 0))
 
         self.create_card(row2, "Total Balance", self.format_price(payment["total_balance"]))
-        self.create_card(row2, "Collection Rate", self.format_percent(payment_health.get("collection_rate", 0)))
         self.create_card(row2, "Paid Bookings", str(payment["paid_count"]))
+        self.create_card(row2, "Partial Bookings", str(payment["partial_count"]))
         self.create_card(row2, "Unpaid Bookings", str(payment["unpaid_count"]))
-
-        breakdown_frame = ttk.Frame(self.payments_tab)
-        breakdown_frame.pack(fill="both", expand=True, pady=(18, 0))
-
-        status_box = ttk.LabelFrame(breakdown_frame, text="Payment Transactions by Verification Status", padding=10)
-        status_box.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        method_box = ttk.LabelFrame(breakdown_frame, text="Payment Transactions by Method", padding=10)
-        method_box.pack(side="left", fill="both", expand=True, padx=(6, 0))
-
-        status_table = self.create_table(
-            status_box,
-            columns=("status", "count", "amount"),
-            headings=("Status", "Transactions", "Amount"),
-            widths=(140, 120, 140),
-            height=8
-        )
-
-        for item in self.reports_data.get("payment_by_status", []):
-            status_table.insert(
-                "",
-                "end",
-                values=(
-                    item["verification_status"] or "",
-                    item["transaction_count"],
-                    self.format_price(item["total_amount"])
-                ),
-                tags=("normal",)
-            )
-
-        method_table = self.create_table(
-            method_box,
-            columns=("method", "count", "amount"),
-            headings=("Method", "Transactions", "Amount"),
-            widths=(140, 120, 140),
-            height=8
-        )
-
-        for item in self.reports_data.get("payment_by_method", []):
-            method_table.insert(
-                "",
-                "end",
-                values=(
-                    item["payment_method"] or "",
-                    item["transaction_count"],
-                    self.format_price(item["total_amount"])
-                ),
-                tags=("normal",)
-            )
 
         ttk.Label(
             self.payments_tab,
             text="Booking Payment Status",
-            style="Section.TLabel"
-        ).pack(anchor="w", pady=(18, 0))
+            font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w", pady=(20, 0))
 
         table = self.create_table(
             self.payments_tab,
             columns=("booking_id", "client", "total", "paid", "balance", "status"),
-            headings=("Booking ID", "Client", "Total", "Paid", "Balance", "Status"),
-            widths=(90, 220, 120, 120, 120, 120),
+            headings=("Booking ID", "Client", "Total", "Paid", "Balance", "Payment Status"),
+            widths=(90, 180, 120, 120, 120, 130),
             height=10
         )
 
@@ -7769,8 +7365,7 @@ class ReportsPage(ttk.Frame):
                     self.format_price(item["net_paid"]),
                     self.format_price(item["balance"]),
                     item["payment_status"]
-                ),
-                tags=("normal",)
+                )
             )
 
     def render_schedules_tab(self):
@@ -7788,16 +7383,16 @@ class ReportsPage(ttk.Frame):
 
         ttk.Label(
             self.schedules_tab,
-            text="Upcoming Schedule List",
-            style="Section.TLabel"
+            text="Upcoming Schedules",
+            font=("Segoe UI", 14, "bold")
         ).pack(anchor="w", pady=(20, 0))
 
         table = self.create_table(
             self.schedules_tab,
             columns=("date", "time", "client", "event_type", "package", "location", "status"),
             headings=("Date", "Time", "Client", "Event Type", "Package", "Location", "Status"),
-            widths=(95, 85, 150, 130, 180, 220, 100),
-            height=14
+            widths=(100, 90, 150, 130, 190, 190, 110),
+            height=12
         )
 
         for event in schedule["upcoming_events"]:
@@ -7812,8 +7407,7 @@ class ReportsPage(ttk.Frame):
                     event["package_name"] or "",
                     event["event_location"] or "",
                     event["status"] or ""
-                ),
-                tags=("normal",)
+                )
             )
 
     def render_clients_tab(self):
@@ -7831,14 +7425,14 @@ class ReportsPage(ttk.Frame):
         ttk.Label(
             self.clients_tab,
             text="Recent Clients",
-            style="Section.TLabel"
+            font=("Segoe UI", 14, "bold")
         ).pack(anchor="w", pady=(20, 0))
 
         table = self.create_table(
             self.clients_tab,
             columns=("id", "name", "contact", "notes", "created_at"),
             headings=("ID", "Client Name", "Contact", "Notes", "Created At"),
-            widths=(60, 220, 140, 350, 160),
+            widths=(60, 200, 140, 350, 160),
             height=12
         )
 
@@ -7852,8 +7446,7 @@ class ReportsPage(ttk.Frame):
                     item["contact_number"] or "",
                     item["notes"] or "",
                     item["created_at"] or ""
-                ),
-                tags=("normal",)
+                )
             )
 
     def render_packages_tab(self):
@@ -7861,27 +7454,17 @@ class ReportsPage(ttk.Frame):
 
         packages = self.reports_data["packages"]
 
-        row = ttk.Frame(self.packages_tab)
-        row.pack(fill="x")
-
-        total_package_revenue = sum(float(item["total_revenue"] or 0) for item in packages)
-        total_package_bookings = sum(int(item["booking_count"] or 0) for item in packages)
-
-        self.create_card(row, "Total Package Revenue", self.format_price(total_package_revenue))
-        self.create_card(row, "Total Package Bookings", str(total_package_bookings))
-        self.create_card(row, "Package Count", str(len(packages)))
-
         ttk.Label(
             self.packages_tab,
             text="Package Performance",
             style="Section.TLabel"
-        ).pack(anchor="w", pady=(20, 0))
+        ).pack(anchor="w", pady=(0, 10))
 
         table = self.create_table(
             self.packages_tab,
             columns=("id", "package_name", "booking_count", "revenue"),
             headings=("ID", "Package", "Booking Count", "Total Revenue"),
-            widths=(60, 340, 140, 160),
+            widths=(60, 320, 130, 150),
             height=15
         )
 
@@ -7894,216 +7477,8 @@ class ReportsPage(ttk.Frame):
                     item["package_name"] or "",
                     item["booking_count"],
                     self.format_price(item["total_revenue"])
-                ),
-                tags=("normal",)
+                )
             )
-
-    def render_admin_health_tab(self):
-        self.clear_tab(self.admin_health_tab)
-
-        system_health = self.reports_data.get("system_health", {})
-
-        row = ttk.Frame(self.admin_health_tab)
-        row.pack(fill="x")
-
-        self.create_card(row, "Active Users", str(system_health.get("active_users", 0)))
-        self.create_card(row, "Total Audit Logs", str(system_health.get("audit_count", 0)))
-        self.create_card(row, "Audit Logs Today", str(system_health.get("audit_today", 0)))
-        self.create_card(row, "Errors This Week", str(system_health.get("errors_this_week", 0)))
-
-        log_frame = ttk.Frame(self.admin_health_tab)
-        log_frame.pack(fill="both", expand=True, pady=(18, 0))
-
-        audit_box = ttk.LabelFrame(log_frame, text="Recent Audit Logs", padding=10)
-        audit_box.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        error_box = ttk.LabelFrame(log_frame, text="Recent System Errors / Crashes", padding=10)
-        error_box.pack(side="left", fill="both", expand=True, padx=(6, 0))
-
-        audit_table = self.create_table(
-            audit_box,
-            columns=("id", "user", "role", "action", "details", "date"),
-            headings=("ID", "User", "Role", "Action", "Details", "Date"),
-            widths=(50, 130, 80, 140, 300, 150),
-            height=14
-        )
-
-        for item in self.reports_data.get("audit_logs", []):
-            audit_table.insert(
-                "",
-                "end",
-                values=(
-                    item["id"],
-                    item["user_name"] or "Unknown",
-                    item["user_role"] or "",
-                    item["action"] or "",
-                    item["details"] or "",
-                    item["created_at"] or ""
-                ),
-                tags=("normal",)
-            )
-
-        error_table = self.create_table(
-            error_box,
-            columns=("id", "type", "message", "source", "date"),
-            headings=("ID", "Type", "Message", "Source", "Date"),
-            widths=(50, 120, 320, 160, 150),
-            height=14
-        )
-
-        for item in self.reports_data.get("system_errors", []):
-            error_table.insert(
-                "",
-                "end",
-                values=(
-                    item["id"],
-                    item["error_type"] or "",
-                    item["error_message"] or "",
-                    item["source"] or "",
-                    item["created_at"] or ""
-                ),
-                tags=("normal",)
-            )
-
-    def get_current_tab_name(self):
-        selected_tab = self.notebook.select()
-        return self.notebook.tab(selected_tab, "text")
-
-    def get_export_rows_for_tab(self, tab_name):
-        if not self.reports_data:
-            return [], []
-
-        if tab_name == "Bookings":
-            rows = []
-            for item in self.reports_data["booking"]["by_status"]:
-                rows.append({
-                    "report": "Bookings by Status",
-                    "category": item["status"],
-                    "count": item["count"]
-                })
-            for item in self.reports_data["booking"]["by_event_type"]:
-                rows.append({
-                    "report": "Bookings by Event Type",
-                    "category": item["event_type"],
-                    "count": item["count"]
-                })
-            return ["report", "category", "count"], rows
-
-        if tab_name == "Payments":
-            rows = self.reports_data["payment"]["booking_payment_statuses"]
-            return ["booking_id", "client_name", "total_amount", "net_paid", "balance", "payment_status"], rows
-
-        if tab_name == "Schedules":
-            rows = self.reports_data["schedule"]["upcoming_events"]
-            return ["event_date", "event_time", "client_name", "event_type", "package_name", "event_location", "status"], rows
-
-        if tab_name == "Clients":
-            rows = self.reports_data["client"]["recent_clients"]
-            return ["id", "full_name", "contact_number", "notes", "created_at"], rows
-
-        if tab_name == "Packages":
-            rows = self.reports_data["packages"]
-            return ["id", "package_name", "booking_count", "total_revenue"], rows
-
-        if tab_name == "Admin / Health":
-            rows = self.reports_data.get("audit_logs", [])
-            return ["id", "user_name", "user_role", "action", "details", "created_at"], rows
-
-        payment = self.reports_data["payment"]
-        system = self.reports_data.get("system_health", {})
-
-        rows = [
-            {"metric": "Expected Revenue", "value": payment["expected_revenue"]},
-            {"metric": "Verified Collections", "value": payment["verified_paid"]},
-            {"metric": "Pending Payments", "value": payment["pending_payment"]},
-            {"metric": "Unpaid Balance", "value": payment["total_balance"]},
-            {"metric": "Refunded Amount", "value": payment["refunded_amount"]},
-            {"metric": "Active Users", "value": system.get("active_users", 0)},
-            {"metric": "Errors This Week", "value": system.get("errors_this_week", 0)}
-        ]
-
-        return ["metric", "value"], rows
-
-    def export_current_tab_csv(self):
-        tab_name = self.get_current_tab_name()
-        headers, rows = self.get_export_rows_for_tab(tab_name)
-
-        if not rows:
-            messagebox.showinfo("No Data", "There is no data to export for this tab.")
-            return
-
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV Files", "*.csv")],
-            initialfile=f"panalo_{tab_name.lower().replace(' ', '_').replace('/', '_')}_report.csv"
-        )
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "w", newline="", encoding="utf-8-sig") as file:
-                writer = csv.DictWriter(file, fieldnames=headers)
-                writer.writeheader()
-
-                for row in rows:
-                    writer.writerow({
-                        header: row.get(header, "")
-                        for header in headers
-                    })
-
-            messagebox.showinfo("Export Complete", "CSV report exported successfully.")
-
-        except Exception as e:
-            messagebox.showerror("Export Error", str(e))
-
-    def export_weekly_report_csv(self):
-        try:
-            weekly = self.app.reports_service.get_weekly_report_data()
-            dashboard = weekly["dashboard"]
-            payment_health = weekly["payment_health"]
-            system_health = weekly["system_health"]
-
-        except Exception as e:
-            messagebox.showerror("Weekly Report Error", str(e))
-            return
-
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV Files", "*.csv")],
-            initialfile=f"panalo_weekly_report_{weekly['start_date']}_to_{weekly['end_date']}.csv"
-        )
-
-        if not file_path:
-            return
-
-        rows = [
-            {"section": "Period", "metric": "Start Date", "value": weekly["start_date"]},
-            {"section": "Period", "metric": "End Date", "value": weekly["end_date"]},
-            {"section": "KPI", "metric": "Total Bookings", "value": dashboard["metrics"]["total_bookings"]},
-            {"section": "KPI", "metric": "Verified Payments", "value": dashboard["metrics"]["verified_payments"]},
-            {"section": "KPI", "metric": "Upcoming Events", "value": dashboard["metrics"]["upcoming_events"]},
-            {"section": "KPI", "metric": "New Clients", "value": dashboard["metrics"]["new_clients"]},
-            {"section": "Payment", "metric": "Expected Revenue", "value": payment_health["expected_revenue"]},
-            {"section": "Payment", "metric": "Verified Paid", "value": payment_health["verified_paid"]},
-            {"section": "Payment", "metric": "Pending Payment", "value": payment_health["pending_payment"]},
-            {"section": "Payment", "metric": "Unpaid Balance", "value": payment_health["total_balance"]},
-            {"section": "Payment", "metric": "Collection Rate", "value": self.format_percent(payment_health["collection_rate"])},
-            {"section": "System", "metric": "Active Users", "value": system_health["active_users"]},
-            {"section": "System", "metric": "Audit Logs Today", "value": system_health["audit_today"]},
-            {"section": "System", "metric": "Errors This Week", "value": system_health["errors_this_week"]}
-        ]
-
-        try:
-            with open(file_path, "w", newline="", encoding="utf-8-sig") as file:
-                writer = csv.DictWriter(file, fieldnames=["section", "metric", "value"])
-                writer.writeheader()
-                writer.writerows(rows)
-
-            messagebox.showinfo("Weekly Report Exported", "Weekly CSV report exported successfully.")
-
-        except Exception as e:
-            messagebox.showerror("Export Error", str(e))
 
 
 class SettingsPage(ttk.Frame):

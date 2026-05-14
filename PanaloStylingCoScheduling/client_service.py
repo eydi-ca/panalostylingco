@@ -7,10 +7,24 @@ class ClientService:
     def __init__(self, db: Database):
         self.db = db
 
-    def validate_client_details(self, full_name: str):
-        if not full_name.strip():
+    def validate_client_details(self, full_name, event_date="", event_location=""):
+        full_name = str(full_name or "").strip()
+        event_date = str(event_date or "").strip()
+        event_location = str(event_location or "").strip()
+
+        if not full_name:
             raise ValueError("Client full name is required.")
 
+        # Client module now stores client information only.
+        # Booking details like event date and event location may be blank here.
+        # Only validate date/location when values are actually provided.
+        if event_date:
+            try:
+                datetime.strptime(event_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Event date must follow YYYY-MM-DD format.")
+
+        return True
 
     def list_clients(self, search_text: str = ""):
         search_text = search_text.strip()
@@ -19,36 +33,42 @@ class ClientService:
             if search_text:
                 rows = conn.execute(
                     """
-                    SELECT 
-                        id,
-                        full_name,
-                        contact_number,
-                        notes,
-                        created_at
-                    FROM clients
-                    WHERE 
-                        full_name LIKE ?
-                        OR contact_number LIKE ?
-                        OR notes LIKE ?
-                    ORDER BY id DESC
+                    SELECT
+                        c.id,
+                        c.full_name,
+                        c.contact_number,
+                        c.notes,
+                        c.created_at,
+                        u.full_name AS created_by_name
+                    FROM clients c
+                    LEFT JOIN users u ON c.created_by = u.id
+                    WHERE
+                        c.full_name LIKE ?
+                        OR c.contact_number LIKE ?
+                        OR c.notes LIKE ?
+                        OR u.full_name LIKE ?
+                    ORDER BY c.id DESC
                     """,
                     (
                         f"%{search_text}%",
                         f"%{search_text}%",
                         f"%{search_text}%",
+                        f"%{search_text}%"
                     )
                 ).fetchall()
             else:
                 rows = conn.execute(
                     """
-                    SELECT 
-                        id,
-                        full_name,
-                        contact_number,
-                        notes,
-                        created_at
-                    FROM clients
-                    ORDER BY id DESC
+                    SELECT
+                        c.id,
+                        c.full_name,
+                        c.contact_number,
+                        c.notes,
+                        c.created_at,
+                        u.full_name AS created_by_name
+                    FROM clients c
+                    LEFT JOIN users u ON c.created_by = u.id
+                    ORDER BY c.id DESC
                     """
                 ).fetchall()
 

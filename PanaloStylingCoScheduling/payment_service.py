@@ -177,53 +177,29 @@ class PaymentService:
             return self.get_refundable_amount(conn, booking_id)
 
     def add_payment(
-        self,
-        booking_id: int,
-        payment_type: str,
-        amount: float,
-        payment_method: str,
-        reference_number: str,
-        payment_date: str,
-        notes: str,
-        created_by: int
+            self,
+            booking_id,
+            payment_type,
+            amount,
+            payment_method,
+            reference_number,
+            payment_date,
+            notes,
+            created_by,
+            created_by_role=None
     ):
-        if not booking_id:
-            raise ValueError("Booking is required.")
-
-        if payment_type not in ["Down Payment", "Partial Payment", "Full Payment", "Refund"]:
-            raise ValueError("Invalid payment type.")
-
         if amount <= 0:
-            raise ValueError("Amount must be greater than zero.")
+            raise ValueError("Payment amount must be greater than zero.")
+
+        is_admin = str(created_by_role or "").upper() == "ADMIN"
+
+        verification_status = "Verified" if is_admin else "Pending"
+        verified_by = created_by if is_admin else None
+        verified_at_sql = "CURRENT_TIMESTAMP" if is_admin else "NULL"
 
         with self.db.get_conn() as conn:
-            booking = conn.execute(
-                """
-                SELECT id
-                FROM bookings
-                WHERE id = ?
-                """,
-                (booking_id,)
-            ).fetchone()
-
-            if not booking:
-                raise ValueError("Booking not found.")
-
-            if payment_type == "Refund":
-                refundable_amount = self.get_refundable_amount(conn, booking_id)
-
-                if refundable_amount <= 0:
-                    raise ValueError(
-                        "No refundable amount available. Down payment is non-refundable."
-                    )
-
-                if amount > refundable_amount:
-                    raise ValueError(
-                        f"Refund cannot exceed refundable amount. Available refundable amount: ₱{refundable_amount:,.2f}"
-                    )
-
-            cur = conn.execute(
-                """
+            conn.execute(
+                f"""
                 INSERT INTO payments (
                     booking_id,
                     payment_type,
@@ -232,34 +208,24 @@ class PaymentService:
                     reference_number,
                     payment_date,
                     verification_status,
+                    verified_by,
+                    verified_at,
                     notes,
                     created_by
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, {verified_at_sql}, ?, ?)
                 """,
                 (
                     booking_id,
                     payment_type,
                     amount,
-                    payment_method.strip(),
-                    reference_number.strip(),
-                    payment_date.strip(),
-                    notes.strip(),
+                    payment_method,
+                    reference_number,
+                    payment_date,
+                    verification_status,
+                    verified_by,
+                    notes,
                     created_by
-                )
-            )
-
-            payment_id = cur.lastrowid
-
-            conn.execute(
-                """
-                INSERT INTO audit_logs (user_id, action, details)
-                VALUES (?, ?, ?)
-                """,
-                (
-                    created_by,
-                    "ADD_PAYMENT",
-                    f"Added payment ID {payment_id} for booking ID {booking_id}"
                 )
             )
 
@@ -301,6 +267,124 @@ class PaymentService:
                     f"Verified payment ID {payment_id}"
                 )
             )
+
+    def list_all_payments(self, filters=None):
+        filters = filters or {}
+
+        query = """
+            SELECT
+                pay.id,
+                pay.booking_id,
+                pay.payment_type,
+                pay.amount,
+                pay.payment_method,
+                pay.reference_number,
+                pay.payment_date,
+                pay.verification_status,
+                pay.created_at,
+                c.full_name AS client_name,
+                b.event_date,
+                p.package_name,
+                creator.full_name AS encoded_by,
+                verifier.full_name AS verified_by,
+
+                CASE
+                    WHEN COALESCE(vp.total_verified_paid, 0) >= COALESCE(b.total_amount, 0)
+                        THEN 'Paid'
+                    WHEN COALESCE(vp.total_verified_paid, 0) > 0
+                        THEN 'Partially Paid'
+                    ELSE 'Unpaid'
+                END AS booking_payment_status
+
+            FROM payments pay
+            LEFT JOIN bookings b ON pay.booking_id = b.id
+            LEFT JOIN clients c ON b.client_id = c.id
+            LEFT JOIN packages p ON b.package_id = p.id
+            LEFT JOIN users creator ON pay.created_by = creator.id
+            LEFT JOIN users verifier ON pay.verified_by = verifier.id
+
+            LEFT JOIN (
+                SELECT
+                    booking_id,
+                    SUM(
+                        CASE
+                            WHEN payment_type = 'Refund' THEN -amount
+                            ELSE amount
+                        END
+                    ) AS total_verified_paid
+                FROM payments
+                WHERE verification_status = 'Verified'
+                GROUP BY booking_id
+            ) vp ON vp.booking_id = b.id
+
+            WHERE 1 = 1
+        """
+
+        params = []
+
+        search = filters.get("search", "").strip()
+        verification_status = filters.get("verification_status", "All")
+        payment_type = filters.get("payment_type", "All")
+        payment_method = filters.get("payment_method", "All")
+        booking_payment_status = filters.get("booking_payment_status", "All")
+
+        if search:
+            query += """
+                AND (
+                    c.full_name LIKE ?
+                    OR CAST(pay.booking_id AS TEXT) LIKE ?
+                    OR pay.reference_number LIKE ?
+                    OR pay.payment_method LIKE ?
+                    OR pay.payment_type LIKE ?
+                    OR creator.full_name LIKE ?
+                    OR verifier.full_name LIKE ?
+                )
+            """
+            like_search = f"%{search}%"
+            params.extend([
+                like_search,
+                like_search,
+                like_search,
+                like_search,
+                like_search,
+                like_search,
+                like_search
+            ])
+
+        if verification_status != "All":
+            query += " AND pay.verification_status = ?"
+            params.append(verification_status)
+
+        if payment_type != "All":
+            query += " AND pay.payment_type = ?"
+            params.append(payment_type)
+
+        if payment_method != "All":
+            query += " AND pay.payment_method = ?"
+            params.append(payment_method)
+
+        if booking_payment_status != "All":
+            query += """
+                AND (
+                    CASE
+                        WHEN COALESCE(vp.total_verified_paid, 0) >= COALESCE(b.total_amount, 0)
+                            THEN 'Paid'
+                        WHEN COALESCE(vp.total_verified_paid, 0) > 0
+                            THEN 'Partially Paid'
+                        ELSE 'Unpaid'
+                    END
+                ) = ?
+            """
+            params.append(booking_payment_status)
+
+        query += """
+            ORDER BY pay.payment_date DESC, pay.id DESC
+        """
+
+        with self.db.get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [dict(row) for row in rows]
 
     def reject_payment(self, payment_id: int, actor_id: int):
         with self.db.get_conn() as conn:
