@@ -73,31 +73,51 @@ class BookingService:
             )
 
     def ensure_no_booking_conflict(self, conn, event_date: str, current_booking_id: int | None = None):
-        cancelled_status_id = self.get_cancelled_status_id(conn)
-
         query = """
-            SELECT id
-            FROM bookings
-            WHERE event_date = ?
+            SELECT
+                b.id,
+                bs.name AS status_name,
+
+                EXISTS(
+                    SELECT 1
+                    FROM payments pay
+                    WHERE pay.booking_id = b.id
+                      AND pay.verification_status = 'Verified'
+                      AND pay.payment_type IN (
+                          'Pencil Booking Fee',
+                          'Down Payment',
+                          'Partial Payment',
+                          'Full Payment'
+                      )
+                    LIMIT 1
+                ) AS has_paid_confirmation
+
+            FROM bookings b
+            LEFT JOIN booking_statuses bs ON b.status_id = bs.id
+            WHERE b.event_date = ?
         """
 
         params = [event_date.strip()]
 
-        if cancelled_status_id:
-            query += " AND status_id != ?"
-            params.append(cancelled_status_id)
-
         if current_booking_id:
-            query += " AND id != ?"
+            query += " AND b.id != ?"
             params.append(current_booking_id)
 
-        query += " LIMIT 1"
+        rows = conn.execute(query, params).fetchall()
 
-        existing = conn.execute(query, params).fetchone()
+        for row in rows:
+            status_name = str(row["status_name"] or "").lower()
+            has_paid_confirmation = int(row["has_paid_confirmation"] or 0) == 1
 
-        if existing:
+            if status_name == "cancelled":
+                continue
+
+            if status_name == "pencil slot" and not has_paid_confirmation:
+                # Unpaid pencil slots are visible but do not fully block the date.
+                continue
+
             raise ValueError(
-                "This date already has a booked client. For now, only one client can be scheduled per day."
+                "This date already has a confirmed or paid pencil slot. Please choose another date."
             )
 
     def list_bookings(self, search_text: str = ""):

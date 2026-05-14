@@ -87,6 +87,12 @@ TIME_OPTIONS = [
 ]
 
 PAYMENT_REFERENCE_MAX_LENGTH = 20
+PENCIL_BOOKING_STATUS = "Pencil Slot"
+PENCIL_BOOKING_FEE_TYPE = "Pencil Booking Fee"
+PENCIL_BOOKING_FEE_AMOUNT = 1000.00
+
+SCHEDULE_PENCIL_BG = "#f1d99b"
+SCHEDULE_PENCIL_FG = "#6a4a11"
 
 def format_number_with_commas(value):
     """
@@ -278,10 +284,142 @@ class PanaloApp(tk.Tk):
         self.reports_service = ReportsService(self.db)
         self.current_user: SessionUser | None = None
 
+        self.ensure_pencil_booking_defaults()
+        self.ensure_payment_type_constraint_supports_pencil_fee()
+
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
 
         self.show_login_page()
+
+    def ensure_pencil_booking_defaults(self):
+        try:
+            with self.db.get_conn() as conn:
+                existing = conn.execute(
+                    """
+                    SELECT id
+                    FROM booking_statuses
+                    WHERE LOWER(name) = LOWER(?)
+                    LIMIT 1
+                    """,
+                    (PENCIL_BOOKING_STATUS,)
+                ).fetchone()
+
+                if not existing:
+                    conn.execute(
+                        """
+                        INSERT INTO booking_statuses (name)
+                        VALUES (?)
+                        """,
+                        (PENCIL_BOOKING_STATUS,)
+                    )
+
+        except Exception as e:
+            messagebox.showerror(
+                "System Setup Error",
+                f"Unable to prepare Pencil Slot defaults: {e}"
+            )
+
+    def ensure_payment_type_constraint_supports_pencil_fee(self):
+        try:
+            with self.db.get_conn() as conn:
+                table_sql_row = conn.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'payments'
+                    """
+                ).fetchone()
+
+                if not table_sql_row:
+                    return
+
+                table_sql = table_sql_row["sql"] or ""
+
+                if "Pencil Booking Fee" in table_sql:
+                    return
+
+                conn.execute("PRAGMA foreign_keys = OFF")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS payments_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        booking_id INTEGER NOT NULL,
+                        payment_type TEXT NOT NULL CHECK (
+                            payment_type IN (
+                                'Pencil Booking Fee',
+                                'Down Payment',
+                                'Partial Payment',
+                                'Full Payment',
+                                'Refund'
+                            )
+                        ),
+                        amount REAL NOT NULL,
+                        payment_method TEXT,
+                        reference_number TEXT,
+                        payment_date TEXT,
+                        verification_status TEXT DEFAULT 'Pending' CHECK (
+                            verification_status IN ('Pending', 'Verified', 'Rejected')
+                        ),
+                        verified_by INTEGER,
+                        verified_at TEXT,
+                        notes TEXT,
+                        created_by INTEGER,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                        FOREIGN KEY (verified_by) REFERENCES users(id),
+                        FOREIGN KEY (created_by) REFERENCES users(id)
+                    )
+                    """
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO payments_new (
+                        id,
+                        booking_id,
+                        payment_type,
+                        amount,
+                        payment_method,
+                        reference_number,
+                        payment_date,
+                        verification_status,
+                        verified_by,
+                        verified_at,
+                        notes,
+                        created_by,
+                        created_at
+                    )
+                    SELECT
+                        id,
+                        booking_id,
+                        payment_type,
+                        amount,
+                        payment_method,
+                        reference_number,
+                        payment_date,
+                        verification_status,
+                        verified_by,
+                        verified_at,
+                        notes,
+                        created_by,
+                        created_at
+                    FROM payments
+                    """
+                )
+
+                conn.execute("DROP TABLE payments")
+                conn.execute("ALTER TABLE payments_new RENAME TO payments")
+
+                conn.execute("PRAGMA foreign_keys = ON")
+
+        except Exception as e:
+            messagebox.showerror(
+                "Database Migration Error",
+                f"Unable to update payment type rules:\n\n{e}"
+            )
 
     def set_window_icon(self):
         try:
@@ -3060,6 +3198,16 @@ class DatePickerWindow(tk.Toplevel):
 
         tk.Label(
             legend,
+            text="Pencil Slot",
+            bg=SCHEDULE_PENCIL_BG,
+            fg=SCHEDULE_PENCIL_FG,
+            width=12,
+            relief="solid",
+            bd=1
+        ).pack(side="left", padx=(0, 8))
+
+        tk.Label(
+            legend,
             text="Unavailable",
             bg="#f8d7da",
             width=12,
@@ -3099,26 +3247,68 @@ class DatePickerWindow(tk.Toplevel):
         self.render_calendar()
 
     def get_booked_dates_for_month(self):
-        schedules = self.app.schedule_service.list_schedules_for_month(
+        first_day = date(self.current_year, self.current_month, 1)
+        last_day = date(
             self.current_year,
-            self.current_month
+            self.current_month,
+            calendar.monthrange(self.current_year, self.current_month)[1]
         )
 
+        query = """
+            SELECT
+                b.id,
+                b.event_date,
+                COALESCE(bs.name, '') AS status_name,
+
+                EXISTS(
+                    SELECT 1
+                    FROM payments pay
+                    WHERE pay.booking_id = b.id
+                      AND pay.verification_status = 'Verified'
+                      AND pay.payment_type IN (
+                          'Pencil Booking Fee',
+                          'Down Payment',
+                          'Partial Payment',
+                          'Full Payment'
+                      )
+                    LIMIT 1
+                ) AS has_paid_confirmation
+
+            FROM bookings b
+            LEFT JOIN booking_statuses bs ON b.status_id = bs.id
+            WHERE b.event_date BETWEEN ? AND ?
+        """
+
+        params = [
+            first_day.strftime("%Y-%m-%d"),
+            last_day.strftime("%Y-%m-%d")
+        ]
+
+        if self.exclude_booking_id:
+            query += " AND b.id != ?"
+            params.append(self.exclude_booking_id)
+
         booked_dates = set()
+        pencil_dates = set()
 
-        for sched in schedules:
-            status = (sched["status"] or "").lower()
+        with self.app.db.get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
 
-            if status == "cancelled":
+        for row in rows:
+            event_date = row["event_date"]
+            status_name = str(row["status_name"] or "").lower()
+            has_paid_confirmation = int(row["has_paid_confirmation"] or 0) == 1
+
+            if status_name == "cancelled":
                 continue
 
-            if self.exclude_booking_id and sched["id"] == self.exclude_booking_id:
+            if status_name == "pencil slot" and not has_paid_confirmation:
+                pencil_dates.add(event_date)
                 continue
 
-            if sched["event_date"]:
-                booked_dates.add(sched["event_date"])
+            booked_dates.add(event_date)
 
-        return booked_dates
+        return booked_dates, pencil_dates
 
     def render_calendar(self):
         for widget in self.calendar_frame.winfo_children():
@@ -3128,7 +3318,7 @@ class DatePickerWindow(tk.Toplevel):
             text=f"{calendar.month_name[self.current_month]} {self.current_year}"
         )
 
-        booked_dates = self.get_booked_dates_for_month()
+        booked_dates, pencil_dates = self.get_booked_dates_for_month()
 
         day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -3165,10 +3355,18 @@ class DatePickerWindow(tk.Toplevel):
 
                 is_too_soon = current_date < self.minimum_date
                 is_booked = date_key in booked_dates
+                is_pencil = date_key in pencil_dates
                 is_unavailable = is_too_soon or is_booked
 
-                bg_color = "#f8d7da" if is_unavailable else "white"
-                fg_color = "#842029" if is_unavailable else "black"
+                if is_unavailable:
+                    bg_color = "#f8d7da"
+                    fg_color = "#842029"
+                elif is_pencil:
+                    bg_color = SCHEDULE_PENCIL_BG
+                    fg_color = SCHEDULE_PENCIL_FG
+                else:
+                    bg_color = "white"
+                    fg_color = "black"
 
                 btn = tk.Button(
                     self.calendar_frame,
@@ -4737,17 +4935,36 @@ class SchedulePage(ttk.Frame):
             if str(event.get("status", "")).lower() != "cancelled"
         ]
 
-        if len(active_events) == 0:
+        if not active_events:
             return "available"
 
-        if len(active_events) >= MAX_ACTIVE_BOOKINGS_PER_DAY:
-            return "booked"
+        non_pencil_events = [
+            event for event in active_events
+            if str(event.get("status", "")).lower() != "pencil slot"
+        ]
 
-        return "limited"
+        pencil_events = [
+            event for event in active_events
+            if str(event.get("status", "")).lower() == "pencil slot"
+        ]
+
+        if non_pencil_events:
+            if len(non_pencil_events) >= MAX_ACTIVE_BOOKINGS_PER_DAY:
+                return "booked"
+
+            return "limited"
+
+        if pencil_events:
+            return "pencil"
+
+        return "available"
 
     def get_status_colors(self, status):
         if status == "available":
             return SCHEDULE_AVAILABLE_BG, ACCENT_OLIVE
+
+        if status == "pencil":
+            return SCHEDULE_PENCIL_BG, SCHEDULE_PENCIL_FG
 
         if status == "limited":
             return SCHEDULE_LIMITED_BG, "#6a4a11"
@@ -4856,7 +5073,10 @@ class SchedulePage(ttk.Frame):
 
         if active_events:
             badge_bg, badge_fg = self.get_status_colors(status)
-            label_text = "Booked" if len(active_events) == 1 else f"{len(active_events)} Bookings"
+            if status == "pencil":
+                label_text = "Pencil Slot" if len(active_events) == 1 else f"{len(active_events)} Pencil Slots"
+            else:
+                label_text = "Booked" if len(active_events) == 1 else f"{len(active_events)} Bookings"
 
             badge = tk.Label(
                 cell,
@@ -4904,6 +5124,7 @@ class SchedulePage(ttk.Frame):
 
         items = [
             ("Available", SCHEDULE_AVAILABLE_BG),
+            ("Pencil Slot", SCHEDULE_PENCIL_BG),
             ("Booked / Fully Booked", SCHEDULE_BOOKED_BG),
             ("Limited Availability", SCHEDULE_LIMITED_BG),
             ("Cancelled", "#efc0c0"),
@@ -6266,7 +6487,14 @@ class PaymentPage(ttk.Frame):
         type_filter = ttk.Combobox(
             filter_bar,
             textvariable=self.payment_type_filter_var,
-            values=("All", "Down Payment", "Partial Payment", "Full Payment", "Refund"),
+            values=(
+                "All",
+                PENCIL_BOOKING_FEE_TYPE,
+                "Down Payment",
+                "Partial Payment",
+                "Full Payment",
+                "Refund"
+            ),
             state="readonly",
             width=16
         )
@@ -6698,7 +6926,8 @@ class MonthYearPickerWindow(tk.Toplevel):
         self.month_var = tk.StringVar(value=calendar.month_name[current_month])
 
         self.title("Select Month and Year")
-        self.geometry("320x190")
+        self.geometry("400x250")
+        self.minsize(400, 250)
         self.resizable(False, False)
         self.configure(bg=APP_BG)
 
@@ -6740,7 +6969,7 @@ class MonthYearPickerWindow(tk.Toplevel):
         year_box.pack(fill="x", pady=(3, 14))
 
         button_row = ttk.Frame(container)
-        button_row.pack(fill="x")
+        button_row.pack(side="bottom", fill="x", pady=(16, 0))
 
         ttk.Button(
             button_row,
@@ -7060,7 +7289,13 @@ class PaymentFormWindow(tk.Toplevel):
         payment_type_box = ttk.Combobox(
             form,
             textvariable=self.payment_type_var,
-            values=("Down Payment", "Partial Payment", "Full Payment", "Refund"),
+            values=(
+                PENCIL_BOOKING_FEE_TYPE,
+                "Down Payment",
+                "Partial Payment",
+                "Full Payment",
+                "Refund"
+            ),
             state="readonly"
         )
         payment_type_box.pack(fill="x", pady=(4, 10))
@@ -7225,8 +7460,16 @@ class PaymentFormWindow(tk.Toplevel):
         if remaining_balance < 0:
             remaining_balance = 0
 
-        if payment_type == "Down Payment":
+        if payment_type == PENCIL_BOOKING_FEE_TYPE:
+            amount = PENCIL_BOOKING_FEE_AMOUNT
+
+            if amount > remaining_balance and remaining_balance > 0:
+                amount = remaining_balance
+
+        elif payment_type == "Down Payment":
             required_down_payment = total_amount * 0.50
+
+            # Pencil fee is deductible, so verified paid amount reduces the remaining downpayment needed.
             amount = required_down_payment - verified_paid_amount
 
             if amount < 0:
@@ -7239,7 +7482,15 @@ class PaymentFormWindow(tk.Toplevel):
             amount = remaining_balance
 
         elif payment_type == "Refund":
-            amount = verified_paid_amount
+            try:
+                amount = self.app.payment_service.get_refundable_amount_by_booking(
+                    self.booking_id
+                )
+            except Exception:
+                amount = verified_paid_amount
+
+            if amount < 0:
+                amount = 0
 
         else:
             amount = 0

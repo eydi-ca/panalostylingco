@@ -147,7 +147,7 @@ class PaymentService:
                 COALESCE(SUM(
                     CASE
                         WHEN verification_status = 'Verified'
-                         AND payment_type IN ('Partial Payment', 'Full Payment')
+                         AND payment_type IN ('Pencil Booking Fee', 'Partial Payment', 'Full Payment')
                         THEN amount
                         ELSE 0
                     END
@@ -198,7 +198,7 @@ class PaymentService:
         verified_at_sql = "CURRENT_TIMESTAMP" if is_admin else "NULL"
 
         with self.db.get_conn() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 f"""
                 INSERT INTO payments (
                     booking_id,
@@ -226,6 +226,23 @@ class PaymentService:
                     verified_by,
                     notes,
                     created_by
+                )
+            )
+
+            payment_id = cursor.lastrowid
+
+            if is_admin:
+                self.sync_booking_balance(conn, booking_id)
+
+            conn.execute(
+                """
+                INSERT INTO audit_logs (user_id, action, details)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    created_by,
+                    "ADD_PAYMENT",
+                    f"Added {payment_type} payment ID {payment_id} for booking ID {booking_id}"
                 )
             )
 
